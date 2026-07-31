@@ -10,8 +10,8 @@ with a visible reason when it is not installed. CI installs it.
 
 from __future__ import annotations
 
+import importlib.util
 import json
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -22,11 +22,15 @@ from agent_safety_gate.gate import Gate
 from agent_safety_gate.signing import SigningKey
 from tests.conftest import FIXED_TIME, call
 
+# The guard has to test what the test actually runs: `sys.executable -m
+# aos_cli.cli`. Checking for an `aos` script on PATH would pass in one
+# environment and run the CLI from another.
 pytestmark = pytest.mark.skipif(
-    shutil.which("aos") is None,
+    importlib.util.find_spec("aos_cli") is None,
     reason=(
-        "the aos-kernel CLI is not installed; install it from "
-        "https://github.com/RafineriaAI/aos-kernel to run the interop test"
+        "the aos-kernel package is not importable by this interpreter; "
+        "install it from https://github.com/RafineriaAI/aos-kernel to run the "
+        "interop test"
     ),
 )
 
