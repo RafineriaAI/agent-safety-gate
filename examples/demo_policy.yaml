@@ -1,0 +1,93 @@
+# Policy for the bundled demo: a coding agent with a small MCP tool server.
+#
+# This is the only file an operator edits. Every number below is a
+# DEMONSTRATION DEFAULT: it is here to make the demo legible, not because it is
+# the right value for your deployment. See BOUNDARY.md before reusing any of it.
+
+policy_id: demo_coding_agent
+policy_version: "1.0.0"
+
+# Bounded 0..10000 scale, inherited from the AOS kernel.
+#   PASS   when score + uncertainty <= limit - warn_margin   (<= 5000)
+#   WARN   when score + uncertainty <= limit                 (<= 7000)
+#   BLOCK  otherwise, or when a critical signal is self-attested
+thresholds:
+  limit: 7000
+  warn_margin: 2000
+
+weights:
+  # What the declared action class costs, before anything else is considered.
+  action_class:
+    read_only: 1000
+    reversible_write: 2000
+    irreversible: 4000
+    external_effect: 4000
+  # The call targets something outside the declared allowlist.
+  scope_mismatch: 4500
+  # The policy requires an independent approval and none exists.
+  approval_missing: 3500
+
+uncertainty:
+  # The gate does not know this tool at all.
+  policy_coverage_absent: 5500
+  # The tool is declared, but the gate cannot tell in-scope from out-of-scope.
+  scope_unmeasured: 1500
+  # Added on top of policy_coverage_absent when unknown_tool is `block`.
+  unknown_tool_extra: 2000
+
+# What to do with a tool that has no entry below.
+#   warn  - forward it, flagged, and tell the operator to declare it
+#   block - refuse it (fail-closed; the safer choice once your policy is complete)
+unknown_tool: warn
+
+# full        - store the call arguments in the record (readable incidents)
+# digest_only - store only their digest (arguments may contain secrets)
+record_arguments: full
+
+# Independent human approvals. One file per approved call, named after the
+# action digest. The gated agent must not be able to write here - that is a
+# deployment property, and the gate says so in every record it writes.
+approvals_dir: .agent-safety-gate/approvals
+
+# The MCP server that `agent-safety-gate wrap` puts behind the gate. Nothing in
+# that server, and nothing in the agent, needs to change.
+upstream:
+  label: demo-tools
+  command: [python, demo_tool_server.py]
+
+tools:
+  fetch_url:
+    action_class: read_only
+    scope:
+      argument: url
+      allow_domains: [docs.example.com]
+
+  read_file:
+    action_class: read_only
+    scope:
+      argument: path
+      allow_path_prefixes: [src/, tests/, README.md]
+
+  write_file:
+    action_class: reversible_write
+    scope:
+      argument: path
+      allow_path_prefixes: [src/, tests/]
+
+  run_tests:
+    action_class: reversible_write
+    scope:
+      argument: path
+      allow_path_prefixes: [src/, tests/]
+
+  run_shell:
+    # irreversible and external_effect require an approval unless the entry
+    # says otherwise. A narrow tool like `run_tests` above is how you keep a
+    # coding agent working without approving every shell command.
+    action_class: irreversible
+
+  send_email:
+    action_class: external_effect
+    scope:
+      argument: to
+      allow_domains: [example.com]

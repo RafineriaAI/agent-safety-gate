@@ -1,0 +1,8 @@
+{
+  "alg": "Ed25519",
+  "label": "DEMO KEY - DO NOT USE IN PRODUCTION",
+  "private_key_base64": "UeJMfsqCINrbgI8LdQqAu1RvyhzBgUnoiQf/3LtEfyo=",
+  "public_key_base64": "b7aaWkspKWjoOeaWZ5zE4g3D4gp5EkGIUhA4gT0zzBk=",
+  "schema_version": "agent-safety-gate-key/v1",
+  "warning": "This file contains a private key in clear text. It exists so that the demo runs offline with zero setup. Production key management is out of scope for this MVP."
+}
