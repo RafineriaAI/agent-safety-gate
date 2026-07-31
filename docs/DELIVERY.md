@@ -49,6 +49,14 @@ It also installs `aos-kernel` from GitHub, because the interop test runs against
 the real kernel rather than the vendored copy. If that repository is ever made
 private, that step fails loudly instead of the test skipping quietly.
 
+## About the history
+
+The commits are ordered by build stage, and each carries the reasoning for what
+it changed. CI has been run against the final tree - a fresh clone into a fresh
+virtual environment passes all nine steps of `tools/verify_all.sh` - but the
+intermediate commits were not individually gated, so `git bisect` across them is
+not guaranteed to find a green build at every step.
+
 ## Suggested repository settings
 
 * Default branch `main`, protected, with the CI check required.
