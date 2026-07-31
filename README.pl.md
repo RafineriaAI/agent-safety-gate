@@ -295,17 +295,17 @@ Cel: [`mcp-server-time`](https://pypi.org/project/mcp-server-time/) z
 referencyjnego zbioru serwerów MCP - pakiet spoza tego repozytorium, opakowany
 bez zmiany choćby jednej jego linii.
 
-| Krok | Czas |
+| Krok | Czas (trzy uruchomienia) |
 | --- | --- |
 | `pip install mcp-server-time` | 2,5 s |
-| rozpoznanie: uruchomienie go przez bramę i wypisanie narzędzi | 1,2 s |
-| pierwsze prawdziwe wywołanie przez proxy, zakończone podpisanym rekordem | 1,5 s |
+| rozpoznanie: uruchomienie go przez bramę i wypisanie narzędzi | 1,2-1,6 s |
+| pierwsze prawdziwe wywołanie przez proxy, zakończone podpisanym rekordem | 1,5-2,1 s |
 
 Części ludzkiej nie ma w tej tabeli, bo to jedna decyzja na narzędzie -
 *czy `get_current_time` jest tylko do odczytu?* - a udawanie, że mierzy się
 stoperem czyjś osąd, byłoby złym rodzajem benchmarku. Całą integracją jest
-[`examples/public_server_policy.yaml`](examples/public_server_policy.yaml): 30
-linii, z czego 8 to dwa wpisy narzędzi.
+[`examples/public_server_policy.yaml`](examples/public_server_policy.yaml):
+37 linii, z czego 8 deklaruje dwa narzędzia, a reszta to komentarze i progi.
 
 ## Obowiązki rejestrowania
 

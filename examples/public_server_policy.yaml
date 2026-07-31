@@ -27,6 +27,9 @@ tools:
   get_current_time:
     action_class: read_only
     scope:
+      # Scope matching is literal prefix matching on a string. Time zone names
+      # are hierarchical, so the same allowlist that constrains file paths
+      # constrains these: Europe/Warsaw is in scope, America/New_York is not.
       argument: timezone
       allow_path_prefixes: [Europe/, UTC]
 

@@ -289,17 +289,18 @@ Target: [`mcp-server-time`](https://pypi.org/project/mcp-server-time/), from the
 reference MCP server collection - a package from outside this repository, wrapped
 without changing a line of it.
 
-| Step | Time |
+| Step | Time (three runs) |
 | --- | --- |
 | `pip install mcp-server-time` | 2.5 s |
-| discovery: start it through the gate and list its tools | 1.2 s |
-| first real call through the proxy, ending in a signed record | 1.5 s |
+| discovery: start it through the gate and list its tools | 1.2-1.6 s |
+| first real call through the proxy, ending in a signed record | 1.5-2.1 s |
 
 The human part is not in that table, because it is one decision per tool -
 *is `get_current_time` read-only?* - and pretending to stopwatch a person's
 judgement would be the wrong kind of benchmark. The whole integration is
-[`examples/public_server_policy.yaml`](examples/public_server_policy.yaml): 30
-lines, of which 8 are the two tool entries.
+[`examples/public_server_policy.yaml`](examples/public_server_policy.yaml):
+37 lines, of which 8 declare the two tools and the rest is comments and
+thresholds.
 
 ## Recording obligations
 
