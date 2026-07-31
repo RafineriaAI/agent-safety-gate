@@ -1,0 +1,43 @@
+PLACEHOLDER - LICENCE NOT YET CHOSEN
+
+TODO (owner decision, do not resolve without the copyright holder):
+choose the licence for agent-safety-gate and replace this file.
+
+Until that decision is made:
+
+    Copyright (c) 2026 Szymon Hetnar. All rights reserved.
+
+    No licence is granted to copy, modify, distribute, sublicense, host, sell or
+    commercialise this software. Reading the repository and running it locally
+    to evaluate it is expected and welcome; anything beyond that needs written
+    permission from the copyright holder.
+
+    The vendored AOS kernel file keeps its own upstream terms; see NOTICE.
+
+Why this is not decided here
+----------------------------
+
+The choice changes who can adopt the tool, and it interacts with the point of
+the product. agent-safety-gate exists to be the artefact you show an auditor or
+a customer. A licence that stops a team from running it inside their own
+pipeline is itself a barrier to entry - the same kind of barrier the rest of
+this repository works to remove. That trade-off is a business decision, not an
+engineering one.
+
+The three realistic options, with consequences, are set out in
+docs/OWNER_DECISIONS.md. Summary:
+
+  * Apache-2.0        - widest adoption, explicit patent grant, permits closed
+                        commercial forks. Best if the goal is that gate records
+                        become something other people's tooling reads.
+  * BSL 1.1           - source-available, free for internal use, blocks a
+                        competitor from selling it as a service, converts to an
+                        open licence on a date you set. Slows some enterprise
+                        adoption because legal review is unfamiliar with it.
+  * Proprietary       - matches the aos-kernel notice and keeps every option
+    demonstrator        open, but evaluators cannot run it in a real pipeline,
+                        which removes most of the value of the five-minute
+                        quickstart.
+
+Whatever is chosen, this file, the `license` field in pyproject.toml and the
+licence line in both READMEs must be updated together.

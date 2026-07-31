@@ -1,0 +1,12 @@
+{
+  "files": {
+    "aos_public_core.py": {
+      "sha256": "f7fabbe7db10a555a9158543826c2b3d35967d61957dcaa76c71cf77567f42eb",
+      "size": 10275,
+      "upstream_path": "core/aos_public_core.py"
+    }
+  },
+  "upstream_commit": "9f851b1d9728a18ec6dedb53e6610b42bab114f4",
+  "upstream_repository": "https://github.com/RafineriaAI/aos-kernel",
+  "upstream_version": "0.1.1"
+}

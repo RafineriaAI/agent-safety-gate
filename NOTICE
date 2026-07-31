@@ -1,0 +1,77 @@
+agent-safety-gate
+Copyright (c) 2026 Szymon Hetnar.
+
+This product includes software from the AOS kernel public demonstrator.
+
+--------------------------------------------------------------------------------
+Vendored component: AOS kernel decision core
+--------------------------------------------------------------------------------
+
+File:              src/agent_safety_gate/_vendor/aos_kernel/aos_public_core.py
+Upstream:          https://github.com/RafineriaAI/aos-kernel
+Upstream version:  0.1.1
+Upstream commit:   9f851b1d9728a18ec6dedb53e6610b42bab114f4
+Upstream path:     core/aos_public_core.py
+SHA-256:           f7fabbe7db10a555a9158543826c2b3d35967d61957dcaa76c71cf77567f42eb
+
+The file is redistributed unmodified. `tools/check_vendor.py` verifies the
+digest, and verifies byte-identity against an upstream checkout when one is
+available.
+
+The upstream NOTICE terms are reproduced below and apply to the vendored file.
+`agent-safety-gate` does not modify the kernel and does not extend, restate, or
+weaken any claim made by the kernel about itself.
+
+--------------------------------------------------------------------------------
+Upstream NOTICE (RafineriaAI/aos-kernel)
+--------------------------------------------------------------------------------
+
+AOS Limited Public Demonstrator
+
+Copyright (c) 2026 Szymon Hetnar. All rights reserved.
+
+This repository is a limited public demonstrator. It intentionally excludes
+production-system code, controlled deployment material, production security
+material, and delivery material.
+
+AOS is the author's proprietary technology designation for the runtime
+assurance method demonstrated in this repository and for related unpublished
+extensions.
+
+This repository is a limited public disclosure. The author reserves all rights,
+to the extent available under applicable law, in the AOS name, public materials,
+unpublished implementation details, confidential know-how, production
+architecture, calibration methods, signal-extraction procedures, domain
+adaptations, and future protected developments.
+
+No license is granted to copy, modify, distribute, sublicense, host, sell,
+commercialize, incorporate, train on, benchmark against as a product substitute,
+or create derivative works from this software or documentation without prior
+written permission from the copyright holder.
+
+No patent license, trademark license, trade-secret license, database right,
+model-training right, or right to use AOS names, marks, product positioning, or
+delivery materials is granted by publication of this repository.
+
+No rights are granted to commercialize, rebrand, sublicense, or represent
+derivative systems as AOS.
+
+Methodology Provenance Marker
+
+Marker ID: AOS-MSK-PROVENANCE-2026-06
+Private methodology commitment SHA-256: 28abb1159ba9e91d91c239760e1d03c6af8017133690f0486cf0578389d76020
+
+This marker links the public demonstrator to a private methodology and know-how
+record held by the author. The private record is not disclosed in this
+repository. The marker is a provenance commitment only; it is not a license,
+patent claim, certification, exclusivity claim, security claim, or disclosure of
+private implementation details.
+
+--------------------------------------------------------------------------------
+Redistribution note
+--------------------------------------------------------------------------------
+
+The upstream terms grant no copying or redistribution rights to third parties.
+`agent-safety-gate` and `aos-kernel` share one copyright holder, who authorises
+this vendored copy. Third parties must not infer any right to redistribute the
+vendored file separately from the terms above.

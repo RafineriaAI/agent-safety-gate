@@ -1,0 +1,109 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-safety-gate"
+version = "0.1.0"
+description = "Deterministic PASS/WARN/BLOCK gate for agent tool calls, with signed, replayable decision records."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Szymon Hetnar" }]
+keywords = [
+    "ai-agents",
+    "mcp",
+    "audit-trail",
+    "tamper-evident",
+    "ed25519",
+    "eu-ai-act",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+]
+
+# Dependency budget. One sentence of justification per dependency; see README
+# "Dependency budget". A new dependency means an existing feature is removed.
+dependencies = [
+    # Ed25519 signing and verification of decision records.
+    "cryptography>=42.0,<47",
+    # Parsing the single operator-owned policy file.
+    "PyYAML>=6.0,<7",
+]
+
+[project.optional-dependencies]
+# Only needed to run the MCP proxy; the gate, the records and the verifier
+# work without it.
+mcp = ["mcp>=1.9,<2"]
+dev = [
+    "mypy>=1.10,<2",
+    "pytest>=8.2,<10",
+    "ruff>=0.6,<1",
+]
+
+[project.scripts]
+agent-safety-gate = "agent_safety_gate.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/RafineriaAI/agent-safety-gate"
+Source = "https://github.com/RafineriaAI/agent-safety-gate"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_safety_gate"]
+
+# The verifier has exactly one source file. It lives at verifier/verify.html for
+# a reader of the repository, and it is shipped inside the wheel so that
+# `agent-safety-gate demo` can hand it to someone who only ran `pip install`.
+[tool.hatch.build.targets.wheel.force-include]
+"verifier/verify.html" = "agent_safety_gate/verify.html"
+# Same reason: `demo` must work for someone who only ran `pip install`.
+"examples/demo_policy.yaml" = "agent_safety_gate/demo_policy.yaml"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "BOUNDARY.md",
+    "LICENSE",
+    "NOTICE",
+    "README.md",
+    "README.pl.md",
+    "benchmarks",
+    "examples",
+    "pyproject.toml",
+    "src",
+    "tests",
+    "tools",
+    "verifier",
+]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src", "tests", "tools", "benchmarks"]
+strict = true
+warn_unused_configs = true
+# Vendored kernel source is byte-identical to upstream and is not type-checked
+# here; upstream owns its own type gate.
+exclude = "src/agent_safety_gate/_vendor/"
+
+[[tool.mypy.overrides]]
+module = ["agent_safety_gate._vendor.*", "yaml", "mcp.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[tool.pytest.ini_options]
+addopts = "-p no:cacheprovider"
+testpaths = ["tests"]
+# So that `pytest` and `python -m pytest` behave the same way.
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+extend-exclude = ["src/agent_safety_gate/_vendor"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

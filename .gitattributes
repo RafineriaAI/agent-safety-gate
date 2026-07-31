@@ -1,0 +1,11 @@
+# Digests are computed over bytes. A checkout that rewrites line endings would
+# change the digest of the vendored kernel and of every committed record, so
+# everything in this repository stays LF on every platform.
+* text=auto eol=lf
+
+# These four are hashed directly, by tools/check_vendor.py, by the verifier and
+# by the record chain. Git must not touch them at all.
+src/agent_safety_gate/_vendor/aos_kernel/aos_public_core.py -text
+examples/sample_records.jsonl -text
+examples/demo_signing_key.INSECURE.json -text
+benchmarks/traces/*.jsonl -text
