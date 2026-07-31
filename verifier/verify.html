@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- The page cannot reach the network: connect-src falls back to default-src
+     'none'. This is not a promise in prose, it is a policy the browser
+     enforces. Open the network tab and watch nothing happen. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<title>agent-safety-gate - offline record verifier</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #14181d;
+    --muted: #5c6773;
+    --line: #dde3ea;
+    --panel: #f6f8fa;
+    --ok: #1a7f4b;
+    --ok-bg: #e6f5ec;
+    --bad: #c0263c;
+    --bad-bg: #fdecef;
+    --warn: #8a6100;
+    --warn-bg: #fdf3e0;
+    --accent: #1f4e79;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12161b; --fg: #e6ebf1; --muted: #97a3b0; --line: #2a323b;
+      --panel: #1a2027; --ok: #4ad38a; --ok-bg: #12291d; --bad: #ff8095;
+      --bad-bg: #2b1419; --warn: #f0c069; --warn-bg: #2b2211; --accent: #8fb8e0;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2rem 1.25rem 4rem; background: var(--bg); color: var(--fg);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 60rem; margin: 0 auto; }
+  h1 { font-size: 1.35rem; margin: 0 0 .35rem; }
+  h2 { font-size: 1rem; margin: 2rem 0 .75rem; }
+  p { margin: .4rem 0; }
+  .sub { color: var(--muted); margin-bottom: 1.5rem; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .85em; }
+  #drop {
+    border: 2px dashed var(--line); border-radius: 10px; padding: 2.5rem 1.5rem;
+    text-align: center; background: var(--panel); cursor: pointer; transition: border-color .15s;
+  }
+  #drop.over { border-color: var(--accent); }
+  #drop strong { display: block; font-size: 1.05rem; margin-bottom: .35rem; }
+  #drop span { color: var(--muted); }
+  input[type=file] { display: none; }
+  .pin { margin-top: 1rem; display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+  .pin label { color: var(--muted); }
+  .pin input[type=text] {
+    flex: 1 1 22rem; padding: .45rem .6rem; border: 1px solid var(--line);
+    border-radius: 6px; background: var(--bg); color: var(--fg);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .8rem;
+  }
+  .summary { margin-top: 1.5rem; padding: 1rem 1.25rem; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); }
+  .summary.pass { border-color: var(--ok); background: var(--ok-bg); }
+  .summary.fail { border-color: var(--bad); background: var(--bad-bg); }
+  .summary h2 { margin: 0 0 .35rem; font-size: 1.1rem; }
+  .counts { display: flex; gap: 1.25rem; flex-wrap: wrap; margin-top: .5rem; color: var(--muted); }
+  .rec { border: 1px solid var(--line); border-radius: 10px; margin-bottom: .6rem; overflow: hidden; }
+  .rec > summary { padding: .7rem .9rem; cursor: pointer; display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
+  .rec > summary::-webkit-details-marker { display: none; }
+  .rec[data-ok="false"] { border-color: var(--bad); }
+  .badge { font-weight: 600; font-size: .75rem; letter-spacing: .04em; padding: .15rem .5rem; border-radius: 999px; }
+  .badge.ok { color: var(--ok); background: var(--ok-bg); }
+  .badge.bad { color: var(--bad); background: var(--bad-bg); }
+  .verdict { font-weight: 700; font-size: .8rem; padding: .15rem .5rem; border-radius: 6px; }
+  .verdict.PASS { color: var(--ok); background: var(--ok-bg); }
+  .verdict.WARN { color: var(--warn); background: var(--warn-bg); }
+  .verdict.BLOCK { color: var(--bad); background: var(--bad-bg); }
+  .rec .tool { font-weight: 600; }
+  .rec .digest { color: var(--muted); margin-left: auto; }
+  .body { padding: 0 .9rem 1rem; border-top: 1px solid var(--line); }
+  .checks { list-style: none; margin: .75rem 0 0; padding: 0; }
+  .checks li { padding: .25rem 0; display: flex; gap: .6rem; align-items: baseline; }
+  .checks .mark { flex: 0 0 1.1rem; font-weight: 700; }
+  .checks .mark.ok { color: var(--ok); }
+  .checks .mark.bad { color: var(--bad); }
+  .checks .name { flex: 0 0 11rem; }
+  .checks .detail { color: var(--muted); }
+  .kv { margin: .75rem 0 0; display: grid; grid-template-columns: max-content 1fr; gap: .2rem .9rem; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; word-break: break-all; }
+  .note { color: var(--muted); font-size: .9em; margin-top: 1rem; }
+  .error { color: var(--bad); font-weight: 600; }
+  footer { margin-top: 3rem; color: var(--muted); font-size: .85rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>agent-safety-gate &mdash; offline record verifier</h1>
+  <p class="sub">
+    Drop a decision record file here. This page recomputes every digest, follows
+    the hash chain and checks every Ed25519 signature, entirely inside your
+    browser. Nothing is uploaded, and nothing can be: the page declares a
+    content security policy that forbids network access.
+  </p>
+
+  <div id="drop" tabindex="0" role="button" aria-label="Choose a record file">
+    <strong>Drop a .jsonl record file here</strong>
+    <span>or click to choose one &mdash; yours or ours</span>
+    <input type="file" id="file" accept=".jsonl,.json,.txt,application/json">
+  </div>
+
+  <div class="pin">
+    <label for="pin">Expected signing key (optional, base64):</label>
+    <input type="text" id="pin" placeholder="leave empty to accept whatever key signed the records" spellcheck="false">
+  </div>
+
+  <div id="out"></div>
+
+  <footer>
+    <p>
+      <strong>What a green result means.</strong> The file was not altered after
+      it was written, each record links to the one before it, and each record was
+      signed by the key it names. A signature is unforgeable without that private
+      key. It is not identity assurance on its own: paste the key you expect into
+      the field above to turn &ldquo;signed by some key&rdquo; into &ldquo;signed
+      by the key I expect&rdquo;.
+    </p>
+    <p>
+      <strong>What it does not mean.</strong> Nothing here judges whether an
+      action was a good idea. The verdict in a record is the gate&rsquo;s
+      deterministic reading of the signals it was given under the policy named in
+      that record.
+    </p>
+  </footer>
+</main>
+
+<script>
+"use strict";
+(function () {
+  // ---------------------------------------------------------------- canonical
+  // Byte-for-byte the same encoding as Python's canonical_json_bytes:
+  // sorted keys, no spaces, UTF-8, no floating point. Keys are compared by
+  // Unicode code point, which is what Python's sort_keys does; JavaScript's
+  // default sort compares UTF-16 code units and would disagree above the BMP.
+  function compareCodePoints(a, b) {
+    const A = Array.from(a), B = Array.from(b);
+    const n = Math.min(A.length, B.length);
+    for (let i = 0; i < n; i++) {
+      const x = A[i].codePointAt(0), y = B[i].codePointAt(0);
+      if (x !== y) return x < y ? -1 : 1;
+    }
+    return A.length === B.length ? 0 : (A.length < B.length ? -1 : 1);
+  }
+
+  function canonicalize(value) {
+    if (value === null) return "null";
+    const type = typeof value;
+    if (type === "boolean") return value ? "true" : "false";
+    if (type === "number") {
+      if (!Number.isInteger(value)) {
+        throw new Error("floating-point numbers are not part of a record");
+      }
+      if (!Number.isSafeInteger(value)) {
+        throw new Error("integer outside the safe range: " + value);
+      }
+      return String(value);
+    }
+    if (type === "string") return JSON.stringify(value);
+    if (Array.isArray(value)) return "[" + value.map(canonicalize).join(",") + "]";
+    if (type === "object") {
+      const keys = Object.keys(value).sort(compareCodePoints);
+      return "{" + keys.map(function (key) {
+        return JSON.stringify(key) + ":" + canonicalize(value[key]);
+      }).join(",") + "}";
+    }
+    throw new Error("cannot canonicalize " + type);
+  }
+
+  const encoder = new TextEncoder();
+
+  function toHex(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let out = "";
+    for (let i = 0; i < bytes.length; i++) out += bytes[i].toString(16).padStart(2, "0");
+    return out;
+  }
+
+  async function sha256HexOfBytes(bytes) {
+    return toHex(await crypto.subtle.digest("SHA-256", bytes));
+  }
+
+  async function sha256Hex(value) {
+    return sha256HexOfBytes(encoder.encode(canonicalize(value)));
+  }
+
+  async function sha256HexText(text) {
+    return sha256HexOfBytes(encoder.encode(text));
+  }
+
+  // ------------------------------------------------------------------ ed25519
+  function base64ToBytes(value) {
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  let ed25519Supported = null;
+  async function ed25519Available() {
+    if (ed25519Supported !== null) return ed25519Supported;
+    try {
+      await crypto.subtle.importKey("raw", new Uint8Array(32), { name: "Ed25519" }, true, ["verify"]);
+      ed25519Supported = true;
+    } catch (error) {
+      ed25519Supported = false;
+    }
+    return ed25519Supported;
+  }
+
+  async function verifyEd25519(publicKeyBase64, signatureBase64, message) {
+    const key = await crypto.subtle.importKey(
+      "raw", base64ToBytes(publicKeyBase64), { name: "Ed25519" }, true, ["verify"]
+    );
+    return crypto.subtle.verify({ name: "Ed25519" }, key, base64ToBytes(signatureBase64), message);
+  }
+
+  // ------------------------------------------------------------------- checks
+  function withoutKeys(record, keys) {
+    const copy = {};
+    Object.keys(record).forEach(function (key) {
+      if (keys.indexOf(key) === -1) copy[key] = record[key];
+    });
+    return copy;
+  }
+
+  function isSha256Hex(value) {
+    return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+  }
+
+  async function verifyRecord(record, line, expectedPrev, pinnedKey) {
+    const checks = [];
+    const add = function (name, ok, detail) { checks.push({ name: name, ok: ok, detail: detail }); };
+
+    const claimed = record.record_sha256;
+    if (!isSha256Hex(claimed)) {
+      add("record_digest", false, "record_sha256 is missing or malformed");
+    } else {
+      try {
+        const computed = await sha256Hex(withoutKeys(record, ["record_sha256"]));
+        add("record_digest", computed === claimed,
+            computed === claimed ? "record content matches record_sha256"
+                                 : "record content does not match record_sha256 (computed " + computed + ")");
+      } catch (error) {
+        add("record_digest", false, String(error.message || error));
+      }
+    }
+
+    const prev = record.prev_record_sha256 === undefined ? null : record.prev_record_sha256;
+    if (expectedPrev === null) {
+      add("chain_link", prev === null,
+          prev === null ? "first record correctly declares no predecessor"
+                        : "first record should have prev_record_sha256 null");
+    } else {
+      add("chain_link", prev === expectedPrev,
+          prev === expectedPrev ? "links to the previous record"
+                                : "prev_record_sha256 does not match the previous record (expected " + expectedPrev + ")");
+    }
+
+    const call = record.call;
+    if (!call || typeof call !== "object" || !("arguments_json" in call)) {
+      add("arguments_digest", false, "call.arguments_json is missing");
+    } else if (call.arguments_json === null) {
+      add("arguments_digest", true,
+          "arguments were not recorded (record_arguments: digest_only); the decision is still bound to their digest");
+    } else if (typeof call.arguments_json !== "string") {
+      add("arguments_digest", false, "call.arguments_json must be a string");
+    } else {
+      const digest = await sha256HexText(call.arguments_json);
+      add("arguments_digest", call.arguments_sha256 === digest,
+          call.arguments_sha256 === digest ? "recorded arguments match their digest"
+                                           : "call.arguments_json does not match call.arguments_sha256");
+    }
+
+    if (record.decision_input && typeof record.decision_input === "object") {
+      try {
+        const digest = await sha256Hex(record.decision_input);
+        add("decision_input_digest", record.input_sha256 === digest,
+            record.input_sha256 === digest ? "decision input matches input_sha256"
+                                           : "decision_input does not match input_sha256");
+      } catch (error) {
+        add("decision_input_digest", false, String(error.message || error));
+      }
+    } else {
+      add("decision_input_digest", false, "decision_input is missing");
+    }
+
+    if (record.decision_material && typeof record.decision_material === "object") {
+      try {
+        const digest = await sha256Hex(record.decision_material);
+        add("decision_digest", record.decision_hash === digest,
+            record.decision_hash === digest ? "decision material matches decision_hash"
+                                            : "decision_material does not match decision_hash");
+      } catch (error) {
+        add("decision_digest", false, String(error.message || error));
+      }
+    } else {
+      add("decision_digest", false, "decision_material is missing");
+    }
+
+    const signature = record.signature;
+    if (!signature || typeof signature !== "object") {
+      add("signature", false, "record is not signed");
+    } else if (typeof signature.public_key !== "string" || typeof signature.value !== "string") {
+      add("signature", false, "signature fields are malformed");
+    } else if (!(await ed25519Available())) {
+      add("signature", false,
+          "this browser cannot check Ed25519 in WebCrypto (needs Chrome/Edge 137+, Firefox 129+ or Safari 17+); " +
+          "the chain checks above still hold");
+    } else {
+      try {
+        const message = encoder.encode(canonicalize(withoutKeys(record, ["record_sha256", "signature"])));
+        const ok = await verifyEd25519(signature.public_key, signature.value, message);
+        add("signature", ok,
+            ok ? "Ed25519 signature valid for key " + signature.public_key
+               : "Ed25519 signature does not verify");
+        if (pinnedKey) {
+          add("pinned_key", signature.public_key === pinnedKey,
+              signature.public_key === pinnedKey ? "signed by the pinned public key"
+                                                 : "signed by a different key than the pinned one (" + signature.public_key + ")");
+        }
+      } catch (error) {
+        add("signature", false, String(error.message || error));
+      }
+    }
+
+    return {
+      line: line,
+      verdict: typeof record.aos_verdict === "string" ? record.aos_verdict : null,
+      tool: call && typeof call.tool === "string" ? call.tool : null,
+      reason: typeof record.reason === "string" ? record.reason : "",
+      recordSha256: typeof claimed === "string" ? claimed : null,
+      recordedAt: typeof record.recorded_at === "string" ? record.recorded_at : "",
+      publicKey: signature && typeof signature.public_key === "string" ? signature.public_key : null,
+      keyLabel: signature && typeof signature.key_label === "string" ? signature.key_label : "",
+      arguments: call && typeof call.arguments_json === "string" ? call.arguments_json : "",
+      checks: checks,
+      ok: checks.every(function (check) { return check.ok; })
+    };
+  }
+
+  async function verifyText(text, pinnedKey) {
+    const results = [];
+    const errors = [];
+    const lines = text.split(/\r?\n/);
+    let expectedPrev = null;
+    for (let index = 0; index < lines.length; index++) {
+      const line = lines[index];
+      if (!line.trim()) continue;
+      let record;
+      try {
+        record = JSON.parse(line);
+      } catch (error) {
+        errors.push("line " + (index + 1) + " is not valid JSON");
+        continue;
+      }
+      if (!record || typeof record !== "object" || Array.isArray(record)) {
+        errors.push("line " + (index + 1) + " is not a JSON object");
+        continue;
+      }
+      const result = await verifyRecord(record, results.length + 1, expectedPrev, pinnedKey);
+      results.push(result);
+      expectedPrev = isSha256Hex(record.record_sha256) ? record.record_sha256 : null;
+    }
+    return {
+      records: results,
+      errors: errors,
+      ok: errors.length === 0 && results.length > 0 && results.every(function (r) { return r.ok; })
+    };
+  }
+
+  // ----------------------------------------------------------------- rendering
+  const out = document.getElementById("out");
+  const drop = document.getElementById("drop");
+  const fileInput = document.getElementById("file");
+  const pinInput = document.getElementById("pin");
+  let lastText = null;
+
+  function element(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function render(report, name) {
+    out.textContent = "";
+    const summary = element("div", "summary " + (report.ok ? "pass" : "fail"));
+    const counts = { PASS: 0, WARN: 0, BLOCK: 0 };
+    report.records.forEach(function (record) {
+      if (counts[record.verdict] !== undefined) counts[record.verdict]++;
+    });
+    const failed = report.records.filter(function (record) { return !record.ok; });
+    summary.appendChild(element("h2", null, report.ok
+      ? "Chain intact - " + report.records.length + " record(s) verified"
+      : "Verification failed"));
+    if (report.ok) {
+      summary.appendChild(element("p", null,
+        "Every digest was recomputed here, every record links to the one before it, "
+        + "and every signature checks out against the key it names."));
+    } else if (report.records.length) {
+      summary.appendChild(element("p", "error",
+        "Broken at line(s): " + failed.map(function (r) { return r.line; }).join(", ")));
+    }
+    report.errors.forEach(function (message) {
+      summary.appendChild(element("p", "error", message));
+    });
+    const countsRow = element("div", "counts");
+    countsRow.appendChild(element("span", null, "file: " + name));
+    countsRow.appendChild(element("span", null, "PASS " + counts.PASS));
+    countsRow.appendChild(element("span", null, "WARN " + counts.WARN));
+    countsRow.appendChild(element("span", null, "BLOCK " + counts.BLOCK));
+    summary.appendChild(countsRow);
+    const keys = [];
+    report.records.forEach(function (record) {
+      if (record.publicKey && keys.indexOf(record.publicKey) === -1) keys.push(record.publicKey);
+    });
+    if (keys.length) {
+      const keyLine = element("p", "note", "signing key(s): " + keys.join(", "));
+      summary.appendChild(keyLine);
+      if (!pinInput.value.trim()) {
+        summary.appendChild(element("p", "note",
+          "A signature proves the holder of that key signed the record. Paste the key you expect above to require it."));
+      }
+    }
+    out.appendChild(summary);
+
+    report.records.forEach(function (record) {
+      const item = element("details", "rec");
+      item.setAttribute("data-ok", String(record.ok));
+      const head = element("summary");
+      head.appendChild(element("span", "badge " + (record.ok ? "ok" : "bad"), record.ok ? "VERIFIED" : "BROKEN"));
+      head.appendChild(element("span", "verdict " + record.verdict, record.verdict || "?"));
+      head.appendChild(element("span", "tool", record.tool || "(unknown tool)"));
+      head.appendChild(element("span", "digest mono", (record.recordSha256 || "").slice(0, 16)));
+      item.appendChild(head);
+
+      const body = element("div", "body");
+      const list = element("ul", "checks");
+      record.checks.forEach(function (check) {
+        const row = element("li");
+        row.appendChild(element("span", "mark " + (check.ok ? "ok" : "bad"), check.ok ? "✓" : "✗"));
+        row.appendChild(element("span", "name mono", check.name));
+        row.appendChild(element("span", "detail", check.detail));
+        list.appendChild(row);
+      });
+      body.appendChild(list);
+
+      const kv = element("dl", "kv");
+      const pairs = [
+        ["decision", record.reason],
+        ["arguments", record.arguments],
+        ["recorded", record.recordedAt],
+        ["record digest", record.recordSha256 || ""],
+        ["signing key", (record.publicKey || "") + (record.keyLabel ? "  (" + record.keyLabel + ")" : "")]
+      ];
+      pairs.forEach(function (pair) {
+        if (!pair[1]) return;
+        kv.appendChild(element("dt", null, pair[0]));
+        kv.appendChild(element("dd", "mono", pair[1]));
+      });
+      body.appendChild(kv);
+      item.appendChild(body);
+      if (!record.ok) item.open = true;
+      out.appendChild(item);
+    });
+  }
+
+  async function handleText(text, name) {
+    lastText = text;
+    try {
+      const report = await verifyText(text, pinInput.value.trim() || null);
+      render(report, name);
+    } catch (error) {
+      out.textContent = "";
+      out.appendChild(element("p", "error", "Could not read that file: " + (error.message || error)));
+    }
+  }
+
+  function handleFile(file) {
+    const reader = new FileReader();
+    reader.onload = function () { handleText(String(reader.result), file.name); };
+    reader.onerror = function () {
+      out.textContent = "";
+      out.appendChild(element("p", "error", "Could not read that file."));
+    };
+    reader.readAsText(file);
+  }
+
+  drop.addEventListener("click", function () { fileInput.click(); });
+  drop.addEventListener("keydown", function (event) {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); fileInput.click(); }
+  });
+  fileInput.addEventListener("change", function () {
+    if (fileInput.files && fileInput.files[0]) handleFile(fileInput.files[0]);
+  });
+  ["dragenter", "dragover"].forEach(function (name) {
+    drop.addEventListener(name, function (event) { event.preventDefault(); drop.classList.add("over"); });
+  });
+  ["dragleave", "drop"].forEach(function (name) {
+    drop.addEventListener(name, function (event) { event.preventDefault(); drop.classList.remove("over"); });
+  });
+  drop.addEventListener("drop", function (event) {
+    const files = event.dataTransfer && event.dataTransfer.files;
+    if (files && files[0]) handleFile(files[0]);
+  });
+  pinInput.addEventListener("change", function () {
+    if (lastText !== null) handleText(lastText, "re-checked with the pinned key");
+  });
+
+  // Same entry points the command line uses, exposed so that a headless run or
+  // your own page can call them directly.
+  window.AGENT_SAFETY_GATE_VERIFIER = {
+    canonicalize: canonicalize,
+    sha256Hex: sha256Hex,
+    sha256HexText: sha256HexText,
+    verifyText: verifyText
+  };
+})();
+</script>
+</body>
+</html>
