@@ -1,0 +1,34 @@
+# Wrapping a third-party MCP server: mcp-server-time, from the reference
+# server collection at github.com/modelcontextprotocol/servers.
+#
+# Nothing in that server was changed, and nothing in it knows about the gate.
+# This file is the whole integration.
+#
+#   pip install mcp-server-time
+#   agent-safety-gate wrap --policy examples/public_server_policy.yaml --check
+#   agent-safety-gate wrap --policy examples/public_server_policy.yaml
+
+policy_id: public_time_server
+policy_version: "1.0.0"
+
+thresholds:
+  limit: 7000
+  warn_margin: 2000
+
+unknown_tool: warn
+record_arguments: full
+approvals_dir: .agent-safety-gate/approvals
+
+upstream:
+  label: time
+  command: [python, -m, mcp_server_time]
+
+tools:
+  get_current_time:
+    action_class: read_only
+    scope:
+      argument: timezone
+      allow_path_prefixes: [Europe/, UTC]
+
+  convert_time:
+    action_class: read_only
