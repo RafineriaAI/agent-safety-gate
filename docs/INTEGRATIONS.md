@@ -119,11 +119,13 @@ the reason, the remediation and the record digest. From Python:
 ```python
 import json, subprocess
 
+
 def gated(tool: str, arguments: dict) -> dict:
     completed = subprocess.run(
         ["agent-safety-gate", "eval", "--stdin", "--json"],
         input=json.dumps({"tool": tool, "arguments": arguments}),
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     return json.loads(completed.stdout)  # act on ["forward"] / ["reason"]
 ```

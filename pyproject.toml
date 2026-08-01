@@ -43,7 +43,9 @@ mcp = ["mcp>=1.9,<2"]
 dev = [
     "mypy>=1.10,<2",
     "pytest>=8.2,<10",
-    "ruff>=0.6,<1",
+    # Pinned to a minor band: the formatter drifts between minors, and a
+    # formatter that disagrees with CI is a red build about nothing.
+    "ruff>=0.16,<0.17",
 ]
 
 [project.scripts]
