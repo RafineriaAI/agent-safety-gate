@@ -19,3 +19,4 @@ venv/
 # stays on the machine that produced it; benchmarks/README.md explains how to
 # make your own.
 benchmarks/traces/real_session.jsonl
+benchmarks/.cache/

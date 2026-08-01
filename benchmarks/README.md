@@ -1,15 +1,16 @@
 # Benchmarks
 
-Three questions, three commands.
+Four questions, four commands.
 
 ```bash
 python benchmarks/workflow_replay.py                            # does the policy do what it says
 python benchmarks/session_replay.py <your-session>.jsonl        # would anyone keep it switched on
+python benchmarks/independent_replay.py                         # what happens on data none of us made
 python benchmarks/proxy_overhead.py                             # what does it cost per call
 ```
 
-The second one is the uncomfortable one, and it is the reason the first one is
-not enough.
+The second and third are the uncomfortable ones, and they are the reason the
+first is not enough.
 
 ## What `workflow_replay.py` measures
 
@@ -168,6 +169,97 @@ local run.
 
 A transcript grows while the session it records is still running, which is why
 the committed number comes from a saved trace rather than from a live log.
+
+## What `independent_replay.py` measures, and what it changed
+
+Both benchmarks above run on traffic produced on this machine. The third does
+not. It replays published trajectories from
+[`nebius/SWE-rebench-openhands-trajectories`](https://huggingface.co/datasets/nebius/SWE-rebench-openhands-trajectories):
+another agent framework (OpenHands), another model, other people's
+repositories, sessions none of us ran.
+
+```text
+trajectories        40
+repositories        38
+tool calls        2 525
+
+  execute_bash        1290  51.1%
+  str_replace_editor  1047  41.5%
+  think                102   4.0%
+  task_tracker          48   1.9%
+  finish                38   1.5%
+```
+
+Rows are fetched once over the public datasets-server JSON API and cached under
+`benchmarks/.cache/`, which is not committed. `--limit` controls how many.
+
+### It confirmed the bad news
+
+51.1% of an independent agent's calls are one do-anything shell. The session
+that built this repository was 49.4%. Two different agents, two different
+models, the same shape: about half of a coding agent's work goes through a tool
+whose action class cannot be declared without declaring the worst case.
+
+That is not a quirk of one transcript, and it is not something a threshold can
+fix.
+
+### It found something the policy could not say
+
+`str_replace_editor` is one tool that reads *and* writes, and which of the two
+it does is carried by its `command` argument. **668 of its 1 047 calls - 63.8% -
+are `view`, a read.** One class per tool cannot express that: whatever the
+operator writes, two thirds of those calls go into the record as the wrong kind
+of action.
+
+So the policy can now declare a class per value of a selector argument:
+
+```yaml
+str_replace_editor:
+  action_class:
+    argument: command
+    values:
+      view: read_only
+      create: reversible_write
+      str_replace: reversible_write
+    default: irreversible      # a value you did not list is one you did not think about
+```
+
+Still a declaration, not an inference: the gate reads the value the call carries
+and looks it up in the file. A call that carries no selector at all is reported
+as not measured, not quietly given the default.
+
+### What it is worth, including where it is worth nothing
+
+The report replays three policies, because "better than the worst alternative"
+is not a measurement:
+
+```text
+one class, cautious          PASS   188 ( 7.4%)   WARN     0   BLOCK  2337
+one class, pragmatic         PASS  1201 (47.6%)   WARN    34   BLOCK  1290
+class per argument value     PASS  1201 (47.6%)   WARN    34   BLOCK  1290
+```
+
+Against a cautious operator who declares the editor `irreversible`, the finer
+policy moves 1 013 calls (40.1%) to PASS. **Against a pragmatic operator who
+declares it `reversible_write`, it changes no verdict at all.**
+
+What it does change either way is what the record says: 687 calls (27.2% of the
+sample) carry a different action class than the pragmatic one-class policy would
+have recorded - reads that would otherwise be written down as writes. For a tool
+whose first job is reconstructing what happened, that is the half that matters,
+and on this traffic it is the whole of what the feature buys.
+
+### And it explains the mode switch
+
+Half the calls of a real agent hitting a shell means an enforcing gate stops
+half the session on day one. `mode: observe` records every decision and forwards
+the call anyway, so a deployment can see what the gate would do before it starts
+saying no. The verdict, the reason and the remediation are identical; only
+enforcement differs, the record carries `policy_mode` and
+`enforcement: forwarded_not_enforced`, and `verify` prints a line for every call
+that was decided but not enforced.
+
+It is a rollout step, not a setting to leave alone.
 
 ## What `proxy_overhead.py` measures
 

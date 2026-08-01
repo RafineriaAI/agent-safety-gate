@@ -128,8 +128,11 @@ agent-safety-gate wrap --policy my_policy.yaml --check
 ```
 
 It starts the upstream server, lists its tools, and prints a policy block for
-the ones you have not covered. It leaves `action_class:` empty: the gate does not
-guess what a tool does, and a guessed class would be worse than no entry.
+the ones you have not covered - with the action class filled in wherever the
+server publishes MCP annotations about itself, labelled as a proposal, plus the
+scope argument it found in the schema. Where the server says nothing,
+`action_class:` is left empty: the gate does not guess what a tool does, and a
+guessed class would be worse than no entry.
 
 Then point your MCP client at the gate instead of the server:
 
@@ -311,6 +314,45 @@ allowlist named directories and forgot the files at the repository root, so
 editing `README.md` counted as out of scope. One run against real work found it.
 That is the everyday use of this: point it at work you have already done and see
 what your policy would have said.
+
+### Calibrated against data none of us made
+
+`python benchmarks/independent_replay.py`
+
+Every number above comes from traffic produced on one machine by the people who
+wrote the gate. This one does not: it replays published OpenHands trajectories
+from [a dataset on the Hugging Face Hub](https://huggingface.co/datasets/nebius/SWE-rebench-openhands-trajectories) -
+another agent, another model, 38 other people's repositories, 2 525 tool calls.
+
+| What it showed | Number |
+| --- | --- |
+| an independent agent's calls that go through one do-anything shell | 51.1% (this repository's own session: 49.4%) |
+| calls to the editor tool that are actually reads (`command: view`) | 63.8% |
+| calls recorded with a different action class once the policy can say so | 687 (27.2%) |
+
+Two of those numbers changed the tool.
+
+**A class per argument value.** An editor tool that both reads and writes cannot
+be described by one class per tool, so the policy can now declare a class per
+value of a selector argument. It is still a declaration - the gate looks the
+value up in your file and never infers anything. Measured honestly, it moves
+40.1% of calls to PASS against a cautious one-class policy and **nothing at all**
+against a pragmatic one; what it always changes is what the record says a call
+did.
+
+**A mode switch.** Half a real session going through a shell means an enforcing
+gate stops half of it on day one. `mode: observe` records every decision and
+forwards the call anyway, so you can see what the gate would do before it starts
+saying no. Same verdict, same reason, same remediation; the record carries
+`policy_mode` and `verify` prints a line for every call that was decided and not
+enforced. It is a rollout step, not somewhere to stay.
+
+**And one thing servers already tell you.** MCP lets a server publish
+`readOnlyHint`, `destructiveHint` and `openWorldHint` about its own tools. Of the
+15 tools on three public reference servers, 14 do. `wrap --check` now fills those
+in as *proposals* you confirm, together with the scope argument it found in the
+schema. MCP is explicit that annotations are hints a client must treat as
+untrusted, so they never reach the gate's decision - only your policy draft.
 
 ### What the proxy costs per call
 

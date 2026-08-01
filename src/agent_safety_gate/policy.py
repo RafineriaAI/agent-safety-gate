@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import posixpath
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final
 from urllib.parse import urlsplit
@@ -35,6 +35,10 @@ ACTION_CLASSES: Final = (
 #: entry says otherwise. Demonstration default.
 APPROVAL_BY_DEFAULT: Final = frozenset({"irreversible", "external_effect"})
 UNKNOWN_TOOL_MODES: Final = ("warn", "block")
+#: What the proxy does with a BLOCK. `enforce` refuses the call; `observe`
+#: records the same verdict and forwards it anyway, which is how a real
+#: deployment gets to see what the gate would do before it starts saying no.
+ENFORCEMENT_MODES: Final = ("enforce", "observe")
 RECORD_ARGUMENTS_MODES: Final = ("full", "digest_only")
 
 DEFAULT_LIMIT: Final = 7000
@@ -136,19 +140,80 @@ def extract_host(value: str) -> str | None:
 
 
 @dataclass(frozen=True)
+class ActionClassRule:
+    """How one call's action class is decided. Declared, never inferred.
+
+    Real agent tools rarely do one thing. An editor tool with a ``command``
+    argument covers `view` (a read) and `str_replace` (a write) under one name,
+    and in independent trajectories about two thirds of its calls are the read.
+    Forcing one class per tool would record all of them as writes.
+
+    So the operator may declare a class per value of a selector argument. That
+    is still a declaration: the gate reads the value the call carries and looks
+    it up, and it never inspects anything else to decide.
+    """
+
+    fixed: str | None = None
+    argument: str | None = None
+    values: Mapping[str, str] = field(default_factory=dict)
+    default: str | None = None
+
+    def resolve(self, arguments: Mapping[str, Any]) -> tuple[str | None, str]:
+        """The class for this call, or ``None`` when it could not be measured."""
+        if self.fixed is not None:
+            return self.fixed, f"declared in the policy as {self.fixed}"
+        assert self.argument is not None
+        selector = arguments.get(self.argument)
+        if not isinstance(selector, str) or not selector.strip():
+            return None, (
+                f"not measured: the policy selects the action class by "
+                f"`{self.argument}`, and this call carries no such string argument"
+            )
+        listed = self.values.get(selector)
+        if listed is not None:
+            return listed, f"declared for {self.argument}={selector!r} as {listed}"
+        return self.default, (
+            f"declared as the default for {self.argument}={selector!r}, "
+            "a value the policy does not list"
+        )
+
+    def declared_classes(self) -> tuple[str, ...]:
+        if self.fixed is not None:
+            return (self.fixed,)
+        classes = set(self.values.values())
+        if self.default is not None:
+            classes.add(self.default)
+        return tuple(sorted(classes))
+
+    def as_dict(self) -> Any:
+        if self.fixed is not None:
+            return self.fixed
+        return {
+            "argument": self.argument,
+            "default": self.default,
+            "values": dict(sorted(self.values.items())),
+        }
+
+
+@dataclass(frozen=True)
 class ToolRule:
     """What the operator declared about one tool."""
 
     name: str
-    action_class: str
-    requires_approval: bool
+    action: ActionClassRule
+    requires_approval: bool | None = None
     scope: ScopeRule | None = None
 
+    def approval_required_for(self, action_class: str) -> bool:
+        """Explicit declaration wins; otherwise the class decides."""
+        if self.requires_approval is not None:
+            return self.requires_approval
+        return action_class in APPROVAL_BY_DEFAULT
+
     def as_dict(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "action_class": self.action_class,
-            "requires_approval": self.requires_approval,
-        }
+        payload: dict[str, Any] = {"action_class": self.action.as_dict()}
+        if self.requires_approval is not None:
+            payload["requires_approval"] = self.requires_approval
         if self.scope is not None:
             payload["scope"] = self.scope.as_dict()
         return payload
@@ -194,6 +259,7 @@ class Policy:
     unknown_tool: str
     record_arguments: str
     approvals_dir: str
+    mode: str
     tools: Mapping[str, ToolRule]
     upstream: Upstream | None
     source_path: Path | None = None
@@ -209,7 +275,18 @@ class Policy:
     def rule_for(self, tool: str) -> ToolRule | None:
         return self.tools.get(tool)
 
+    @property
+    def enforcing(self) -> bool:
+        return self.mode == "enforce"
+
     def as_canonical_dict(self) -> dict[str, Any]:
+        """The decision-relevant policy.
+
+        `mode` is deliberately absent: it changes what the proxy does with a
+        verdict, never the verdict, so the same call decides identically under
+        both modes and the digests stay comparable. Which mode was in force is
+        recorded in the record envelope instead.
+        """
         return {
             "approvals_dir": self.approvals_dir,
             "policy_id": self.policy_id,
@@ -319,34 +396,75 @@ def _parse_scope(value: Any, tool: str) -> ScopeRule | None:
     )
 
 
-def _parse_tool(name: str, value: Any) -> ToolRule:
-    payload = _require_mapping(value, f"tools.{name}")
-    action_class = _require_str(
-        payload.get("action_class"), f"tools.{name}.action_class"
-    )
+def _require_action_class(value: Any, where: str) -> str:
+    action_class = _require_str(value, where)
     if action_class not in ACTION_CLASSES:
         raise _fail(
-            f"`tools.{name}.action_class` is {action_class!r}, "
-            f"which is not one of {', '.join(ACTION_CLASSES)}",
+            f"`{where}` is {action_class!r}, which is not one of "
+            f"{', '.join(ACTION_CLASSES)}",
             f"pick one of: {', '.join(ACTION_CLASSES)}.",
         )
+    return action_class
+
+
+def _parse_action_class(value: Any, tool: str) -> ActionClassRule:
+    where = f"tools.{tool}.action_class"
+    if value is None:
+        raise _fail(
+            f"`{where}` is missing",
+            f"declare what {tool} does: one of {', '.join(ACTION_CLASSES)}. The "
+            "gate does not guess what a tool does, and a guessed class would be "
+            "worse than no entry.",
+        )
+    if isinstance(value, str):
+        return ActionClassRule(fixed=_require_action_class(value, where))
+
+    payload = _require_mapping(value, where)
+    argument = _require_str(payload.get("argument"), f"{where}.argument")
+    values_payload = _require_mapping(payload.get("values"), f"{where}.values")
+    if not values_payload:
+        raise _fail(
+            f"`{where}.values` is empty",
+            "list the values of "
+            f"`{argument}` you want to classify, for example:\n"
+            f"  {where}:\n    argument: {argument}\n"
+            "    values:\n      view: read_only\n      create: reversible_write\n"
+            "    default: irreversible",
+        )
+    values = {
+        str(key): _require_action_class(item, f"{where}.values.{key}")
+        for key, item in values_payload.items()
+    }
+    if payload.get("default") is None:
+        raise _fail(
+            f"`{where}.default` is missing",
+            f"say what an unlisted value of `{argument}` means. Leaving it out "
+            "would make the gate guess, which it will not do. Use "
+            f"`default: irreversible` if you want the safe answer.",
+        )
+    return ActionClassRule(
+        argument=argument,
+        values=values,
+        default=_require_action_class(payload.get("default"), f"{where}.default"),
+    )
+
+
+def _parse_tool(name: str, value: Any) -> ToolRule:
+    payload = _require_mapping(value, f"tools.{name}")
+    action = _parse_action_class(payload.get("action_class"), name)
     requires_approval = payload.get("requires_approval")
-    if requires_approval is None:
-        resolved_approval = action_class in APPROVAL_BY_DEFAULT
-    elif isinstance(requires_approval, bool):
-        resolved_approval = requires_approval
-    else:
+    if requires_approval is not None and not isinstance(requires_approval, bool):
+        classes = ", ".join(action.declared_classes())
         raise _fail(
             f"`tools.{name}.requires_approval` must be true or false, "
             f"got {requires_approval!r}",
-            f"write `requires_approval: true` or remove the line "
-            f"(default for {action_class} is "
-            f"{str(action_class in APPROVAL_BY_DEFAULT).lower()}).",
+            "write `requires_approval: true` or remove the line, in which case "
+            f"the action class decides ({classes}).",
         )
     return ToolRule(
         name=name,
-        action_class=action_class,
-        requires_approval=resolved_approval,
+        action=action,
+        requires_approval=requires_approval,
         scope=_parse_scope(payload.get("scope"), name),
     )
 
@@ -444,6 +562,15 @@ def load_policy(path: Path) -> Policy:
             f"use one of: {', '.join(UNKNOWN_TOOL_MODES)}.",
         )
 
+    mode = _require_str(document.get("mode"), "mode", "enforce").lower()
+    if mode not in ENFORCEMENT_MODES:
+        raise _fail(
+            f"`mode` is {mode!r}",
+            f"use one of: {', '.join(ENFORCEMENT_MODES)}. `observe` records "
+            "every decision and forwards the call anyway; use it to see what "
+            "the gate would do before it starts saying no.",
+        )
+
     record_arguments = _require_str(
         document.get("record_arguments"), "record_arguments", "full"
     ).lower()
@@ -492,6 +619,7 @@ def load_policy(path: Path) -> Policy:
         ),
         unknown_tool=unknown_tool,
         record_arguments=record_arguments,
+        mode=mode,
         approvals_dir=_require_str(
             document.get("approvals_dir"),
             "approvals_dir",

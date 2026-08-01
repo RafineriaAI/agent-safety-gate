@@ -132,12 +132,15 @@ def _coverage_signal(rule: ToolRule | None, policy: Policy) -> Signal:
     )
 
 
-def _action_class_signal(rule: ToolRule | None, policy: Policy) -> Signal:
+def _action_class_signal(
+    rule: ToolRule | None, policy: Policy, call: ToolCall
+) -> Signal:
+    source = f"policy:{policy.policy_id}@{policy.digest[:12]}"
     if rule is None:
         return Signal(
             id=SIGNAL_ACTION_CLASS,
             value=None,
-            source=f"policy:{policy.policy_id}@{policy.digest[:12]}",
+            source=source,
             independent=True,
             measured=False,
             detail=(
@@ -145,13 +148,14 @@ def _action_class_signal(rule: ToolRule | None, policy: Policy) -> Signal:
                 "policy has no entry for this tool"
             ),
         )
+    resolved, detail = rule.action.resolve(call.arguments)
     return Signal(
         id=SIGNAL_ACTION_CLASS,
-        value=rule.action_class,
-        source=f"policy:{policy.policy_id}@{policy.digest[:12]}",
+        value=resolved,
+        source=source,
         independent=True,
-        measured=True,
-        detail=f"declared in the policy as {rule.action_class}",
+        measured=resolved is not None,
+        detail=detail,
     )
 
 
@@ -206,8 +210,13 @@ def _scope_signal(rule: ToolRule | None, call: ToolCall, policy: Policy) -> Sign
     )
 
 
-def _approval_signal(rule: ToolRule | None, call: ToolCall, policy: Policy) -> Signal:
-    if rule is None:
+def _approval_signal(
+    rule: ToolRule | None,
+    call: ToolCall,
+    policy: Policy,
+    action_class: str | None,
+) -> Signal:
+    if rule is None or action_class is None:
         return Signal(
             id=SIGNAL_APPROVAL_PRESENT,
             value=None,
@@ -217,9 +226,12 @@ def _approval_signal(rule: ToolRule | None, call: ToolCall, policy: Policy) -> S
             detail=(
                 "not measured: without a policy entry the gate does not know "
                 "whether this call needs an approval"
+                if rule is None
+                else "not measured: the action class of this call could not be "
+                "resolved, so whether it needs an approval is unknown"
             ),
         )
-    if not rule.requires_approval:
+    if not rule.approval_required_for(action_class):
         return Signal(
             id=SIGNAL_APPROVAL_PRESENT,
             value="not_required",
@@ -309,10 +321,11 @@ def _self_assessment_signal(call: ToolCall) -> Signal:
 def collect_signals(policy: Policy, call: ToolCall) -> tuple[Signal, ...]:
     """Measure every MVP signal for one call, in a stable order."""
     rule = policy.rule_for(call.tool)
+    action_class_signal = _action_class_signal(rule, policy, call)
     signals = (
-        _action_class_signal(rule, policy),
+        action_class_signal,
         _self_assessment_signal(call),
-        _approval_signal(rule, call, policy),
+        _approval_signal(rule, call, policy, action_class_signal.value),
         _coverage_signal(rule, policy),
         _scope_signal(rule, call, policy),
     )

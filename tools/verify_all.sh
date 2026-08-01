@@ -45,6 +45,17 @@ run_step "committed sample matches the code" "$PYTHON" tools/regenerate_examples
 run_step "documentation claims audit" "$PYTHON" tools/audit_claims.py
 run_step "workflow benchmark, deterministic" "$PYTHON" benchmarks/workflow_replay.py --no-latency
 
+# The independent replay needs one network call the first time, then reads its
+# cache. It reports rather than fails when neither is available.
+if [ -d benchmarks/.cache ] || [ "${ASG_ALLOW_NETWORK:-0}" = "1" ]; then
+  run_step "independent replay (published trajectories)"     "$PYTHON" benchmarks/independent_replay.py
+else
+  printf '
+=== -. independent replay
+    skipped: no benchmarks/.cache and ASG_ALLOW_NETWORK is not 1
+'
+fi
+
 # The real-session replay needs a trace derived from someone's transcript.
 # Committing that is the repository owner's decision, so this step reports
 # rather than fails when the trace is absent.

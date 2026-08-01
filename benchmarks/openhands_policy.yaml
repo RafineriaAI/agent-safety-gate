@@ -1,0 +1,76 @@
+# A policy for the OpenHands agent tool surface, used by
+# benchmarks/independent_replay.py against published trajectories.
+#
+# The tool surface is not ours and neither are the trajectories. That is the
+# point: this is the one policy in the repository written for somebody else's
+# agent, against traffic nobody here produced.
+#
+# The interesting entry is `str_replace_editor`. It is one tool that both reads
+# and writes, and which of the two it does is carried by its `command`
+# argument - so the class is declared per value. That is still a declaration:
+# the gate reads the value the call carries and looks it up in this file. It
+# never inspects anything else, and an unlisted value gets the `default`, which
+# the operator has to write down.
+
+policy_id: openhands_agent
+policy_version: "1.0.0"
+
+thresholds:
+  limit: 7000
+  warn_margin: 2000
+
+weights:
+  action_class:
+    read_only: 1000
+    reversible_write: 2000
+    irreversible: 4000
+    external_effect: 4000
+  scope_mismatch: 4500
+  approval_missing: 3500
+
+uncertainty:
+  policy_coverage_absent: 5500
+  scope_unmeasured: 1500
+  unknown_tool_extra: 2000
+
+unknown_tool: warn
+record_arguments: full
+approvals_dir: .agent-safety-gate/approvals
+
+tools:
+  str_replace_editor:
+    action_class:
+      argument: command
+      values:
+        view: read_only
+        create: reversible_write
+        str_replace: reversible_write
+        insert: reversible_write
+        undo_edit: reversible_write
+      # A value this file does not list is not a value the operator has thought
+      # about, so it gets the answer that cannot quietly do damage.
+      default: irreversible
+    scope:
+      argument: path
+      allow_path_prefixes: [/workspace/]
+
+  # A shell can do anything, so the only honest class is the worst thing it can
+  # do. benchmarks/README.md works through what that costs.
+  execute_bash:
+    action_class: irreversible
+
+  # Logs a thought. Changes nothing, reads nothing.
+  think:
+    action_class: read_only
+
+  # Ends the session with a message to the user.
+  finish:
+    action_class: read_only
+
+  task_tracker:
+    action_class:
+      argument: command
+      values:
+        view: read_only
+        plan: reversible_write
+      default: reversible_write

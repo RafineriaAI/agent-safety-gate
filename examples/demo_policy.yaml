@@ -40,6 +40,13 @@ uncertainty:
 #   block - refuse it (fail-closed; the safer choice once your policy is complete)
 unknown_tool: warn
 
+# enforce - a BLOCK refuses the call
+# observe - a BLOCK is recorded, and the call is forwarded anyway. Start here on
+#           a real agent: an independent 2,525-call sample has 51% of its calls
+#           going through one shell tool, so an enforcing gate stops half a
+#           session on day one. See benchmarks/README.md.
+mode: enforce
+
 # full        - store the call arguments in the record (readable incidents)
 # digest_only - store only their digest (arguments may contain secrets)
 record_arguments: full

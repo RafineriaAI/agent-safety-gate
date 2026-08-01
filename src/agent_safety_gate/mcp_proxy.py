@@ -8,6 +8,11 @@ The agent's MCP client connects to this process instead of the real server. Ever
   to the record,
 * ``BLOCK`` - refused, with the reason and the remediation in the error.
 
+Under ``mode: observe`` a blocked call is forwarded anyway and the response says
+so. The verdict and the record are identical either way; only enforcement
+differs. That is how a deployment finds out what the gate would do before it
+starts saying no, and the proxy says loudly at startup that it is not enforcing.
+
 Everything else about the session (tool list, schemas, results) is passed
 through untouched. The gate does not rewrite tool descriptions and does not try
 to improve the agent's behaviour: changing what the agent sees would make the
@@ -129,6 +134,8 @@ class GateProxy:
     def annotation(self, decision: Any, record: Mapping[str, Any]) -> dict[str, Any]:
         return {
             ANNOTATION_KEY: {
+                "enforcement": self.gate.enforcement_for(decision),
+                "mode": self.policy.mode,
                 "record_sha256": record["record_sha256"],
                 "records_file": str(self.state.records_path),
                 "reason": decision.reason,
@@ -158,6 +165,14 @@ class GateProxy:
             f"{self.state.records_path} --record {record['record_sha256'][:12]}"
         )
         return "\n".join(lines)
+
+    def observed_text(self, decision: Any, record: Mapping[str, Any]) -> str:
+        return (
+            f"[{PROXY_NAME} WOULD HAVE BLOCKED - mode: observe] {decision.reason} "
+            f"The call was forwarded because this policy is not enforcing. "
+            f"(record {str(record['record_sha256'])[:12]}, "
+            f"file {self.state.records_path})"
+        )
 
     def warn_text(self, decision: Any, record: Mapping[str, Any]) -> str:
         return (
@@ -191,6 +206,13 @@ class GateProxy:
             read, write = await stack.enter_async_context(stdio_client(parameters))
             upstream = await stack.enter_async_context(ClientSession(read, write))
             await upstream.initialize()
+            if not self.policy.enforcing:
+                print(
+                    f"[{PROXY_NAME}] mode: observe - every decision is recorded "
+                    "and NOTHING is blocked. Switch to `mode: enforce` in "
+                    f"{self.policy.source_path} when you have seen enough.",
+                    file=sys.stderr,
+                )
             server: Any = Server(PROXY_NAME)
 
             @server.list_tools()  # type: ignore[untyped-decorator]
@@ -212,7 +234,7 @@ class GateProxy:
                     meta=meta,
                 )
                 decision, record = await self.evaluate_and_record(call)
-                if decision.verdict == "BLOCK":
+                if not self.gate.should_forward(decision):
                     return types.CallToolResult(
                         content=[
                             types.TextContent(
@@ -224,7 +246,14 @@ class GateProxy:
                     )
                 result = await upstream.call_tool(name, arguments)
                 content = list(result.content)
-                if decision.verdict == "WARN":
+                if decision.verdict == "BLOCK":
+                    # observe mode: the call ran, and the response says so.
+                    content.append(
+                        types.TextContent(
+                            type="text", text=self.observed_text(decision, record)
+                        )
+                    )
+                elif decision.verdict == "WARN":
                     content.append(
                         types.TextContent(
                             type="text", text=self.warn_text(decision, record)
@@ -273,7 +302,7 @@ class GateProxy:
         )
 
 
-async def _list_upstream_tools(policy: Policy) -> list[str]:
+async def _describe_upstream_tools(policy: Policy) -> list[dict[str, Any]]:
     _require_mcp()
     from mcp.client.session import ClientSession
     from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -290,7 +319,68 @@ async def _list_upstream_tools(policy: Policy) -> list[str]:
         async with ClientSession(read, write) as session:
             await session.initialize()
             result = await session.list_tools()
-            return [tool.name for tool in result.tools]
+            described: list[dict[str, Any]] = []
+            for tool in result.tools:
+                annotations = tool.annotations
+                described.append(
+                    {
+                        "annotations": annotations.model_dump(exclude_none=True)
+                        if annotations is not None
+                        else None,
+                        "name": tool.name,
+                        "scope_argument": scope_argument_for(tool.inputSchema),
+                    }
+                )
+            return described
+
+
+#: How a server's own annotations map onto the four action classes. MCP defines
+#: these as *hints*: the specification says a client must treat them as
+#: untrusted and use them for interface decisions, not as security guarantees.
+#: So they are used in exactly one place - proposing a policy entry that the
+#: operator then confirms - and never by the gate when it decides.
+def class_from_annotations(annotations: Mapping[str, Any] | None) -> str | None:
+    """The class a server's annotations suggest, or None when it declares nothing."""
+    if not annotations:
+        return None
+    read_only = annotations.get("readOnlyHint")
+    destructive = annotations.get("destructiveHint")
+    open_world = annotations.get("openWorldHint")
+    if read_only is True:
+        return "read_only"
+    if read_only is not False:
+        return None
+    if destructive is True:
+        return "irreversible"
+    if open_world is True:
+        return "external_effect"
+    if destructive is False:
+        return "reversible_write"
+    return None
+
+
+#: Argument names that carry something a scope allowlist can match. Taken from
+#: the inputSchema of real public servers rather than invented: `repo_path` is
+#: every tool in the reference git server, `url` is the fetch server, `path` and
+#: `file_path` are the common file-tool spelling.
+SCOPE_ARGUMENT_NAMES: Final = (
+    "path",
+    "file_path",
+    "repo_path",
+    "notebook_path",
+    "directory",
+    "url",
+)
+
+
+def scope_argument_for(schema: Mapping[str, Any] | None) -> str | None:
+    properties = (schema or {}).get("properties")
+    if not isinstance(properties, dict):
+        return None
+    for name in SCOPE_ARGUMENT_NAMES:
+        if name in properties:
+            return name
+    return None
 
 
 def inspect_upstream(policy: Policy) -> tuple[list[str], list[str]]:
@@ -300,29 +390,61 @@ def inspect_upstream(policy: Policy) -> tuple[list[str], list[str]]:
     to know, and reading someone else's server code to find out is the slow way.
     """
     logging.basicConfig(level=logging.WARNING, stream=sys.stderr, force=True)
-    names = asyncio.run(_list_upstream_tools(policy))
+    described = describe_upstream(policy)
+    names = [str(tool["name"]) for tool in described]
     undeclared = [name for name in names if policy.rule_for(name) is None]
     return names, undeclared
 
 
-def policy_skeleton(undeclared: Sequence[str]) -> str:
+def describe_upstream(policy: Policy) -> list[dict[str, Any]]:
+    """Every upstream tool with its annotations and a scopeable argument."""
+    logging.basicConfig(level=logging.WARNING, stream=sys.stderr, force=True)
+    return asyncio.run(_describe_upstream_tools(policy))
+
+
+def policy_skeleton(
+    undeclared: Sequence[str],
+    described: Sequence[Mapping[str, Any]] = (),
+) -> str:
     """A block to paste into the policy. It declares nothing on its own.
 
-    The action class is left empty on purpose: the gate does not guess what a
-    tool does, and an entry with a guessed class would be worse than no entry.
+    Where the server publishes annotations, the matching class is filled in as a
+    *proposal* and labelled as one. MCP defines annotations as hints from a
+    source a client must treat as untrusted, so a human confirming them is the
+    whole point; the gate never reads them when it decides.
     """
+    details = {str(tool["name"]): tool for tool in described}
     lines = ["tools:"]
     for name in undeclared:
+        tool = details.get(name, {})
+        proposed = class_from_annotations(tool.get("annotations"))
+        scope_argument = tool.get("scope_argument")
         lines.append(f"  {name}:")
-        lines.append(
-            "    action_class:  # read_only | reversible_write | irreversible "
-            "| external_effect"
-        )
-        lines.append(
-            "    # scope:        # optional, but without it the gate cannot tell"
-        )
-        lines.append("    #   argument: path")
-        lines.append("    #   allow_path_prefixes: [src/]")
+        if proposed:
+            lines.append(
+                f"    action_class: {proposed}"
+                "    # PROPOSED by the server's own annotations - confirm it"
+            )
+        else:
+            lines.append(
+                "    action_class:  # read_only | reversible_write | irreversible "
+                "| external_effect"
+            )
+            lines.append(
+                "    #              this server declares nothing about this tool, "
+                "so the class is yours"
+            )
+        if scope_argument:
+            lines.append("    scope:")
+            lines.append(f"      argument: {scope_argument}")
+            lines.append(
+                "      allow_path_prefixes: []  # fill in, or delete the scope block"
+            )
+        else:
+            lines.append(
+                "    # scope:      # no argument in the schema looks like a path "
+                "or a URL"
+            )
     return "\n".join(lines)
 
 

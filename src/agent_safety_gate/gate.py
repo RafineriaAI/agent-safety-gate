@@ -62,6 +62,10 @@ ENFORCEMENT_BY_VERDICT: Final = {
     "WARN": "forwarded_with_warning",
     "BLOCK": "rejected",
 }
+#: What a BLOCK becomes under `mode: observe`. The verdict is unchanged and the
+#: record says the same thing it would have said; only the proxy behaves
+#: differently, and the record says that too.
+ENFORCEMENT_OBSERVED: Final = "forwarded_not_enforced"
 
 
 @dataclass(frozen=True)
@@ -122,6 +126,7 @@ class Decision:
 
     @property
     def enforcement(self) -> str:
+        """What an enforcing deployment does with this verdict."""
         return ENFORCEMENT_BY_VERDICT[self.verdict]
 
     @property
@@ -141,6 +146,22 @@ class Gate:
 
     def __init__(self, policy: Policy) -> None:
         self.policy = policy
+
+    # -- enforcement -----------------------------------------------------
+
+    def enforcement_for(self, decision: Decision) -> str:
+        if decision.verdict == "BLOCK" and not self.policy.enforcing:
+            return ENFORCEMENT_OBSERVED
+        return ENFORCEMENT_BY_VERDICT[decision.verdict]
+
+    def should_forward(self, decision: Decision) -> bool:
+        """Whether the proxy passes the call upstream.
+
+        Under `mode: observe` a blocked call is still forwarded. The verdict,
+        the reason and the remediation are recorded exactly as they would be
+        under `enforce`, so the record shows what would have been stopped.
+        """
+        return decision.allowed or not self.policy.enforcing
 
     # -- scoring ---------------------------------------------------------
 
@@ -170,6 +191,22 @@ class Gate:
                     score=0,
                     uncertainty=uncertainty,
                     reason=reason,
+                )
+            )
+        elif not action_class.measured:
+            # The tool is declared, but this particular call did not carry the
+            # value the policy classifies by. Knowing nothing about what a call
+            # does is the same epistemic state as having no entry at all, and it
+            # costs the same, rather than falling back on a guess.
+            items.append(
+                Contribution(
+                    signal_id=SIGNAL_ACTION_CLASS,
+                    score=0,
+                    uncertainty=policy.coverage_absent_uncertainty,
+                    reason=(
+                        f"the policy classifies `{call.tool}` by an argument this "
+                        "call does not carry, so its action class is unknown"
+                    ),
                 )
             )
         else:
@@ -254,6 +291,9 @@ class Gate:
         remediation = self._remediation(signals, call)
         reason = self._reason(verdict, deficits)
 
+        # `policy.mode` is deliberately absent: it decides what the proxy does
+        # with a verdict, never the verdict, so the same call has the same
+        # decision digest whether the deployment is enforcing or observing.
         decision_input = {
             "arguments_sha256": call.arguments_sha256,
             "policy_digest": policy.digest,
@@ -494,7 +534,7 @@ class Gate:
             "decision_hash": decision.decision_hash,
             "decision_input": decision.decision_input,
             "decision_material": decision.decision_material,
-            "enforcement": decision.enforcement,
+            "enforcement": self.enforcement_for(decision),
             "finding_count": len(decision.deficits),
             "gate_schema_version": GATE_RECORD_SCHEMA,
             "input_format": CALL_INPUT_FORMAT,
@@ -502,6 +542,7 @@ class Gate:
             "kernel_evidence": decision.kernel_evidence,
             "mode": mode,
             "policy_digest": policy.digest,
+            "policy_mode": policy.mode,
             "prev_record_sha256": prev_record_sha256,
             "reason": decision.reason,
             "recorded_at": recorded_at or _now(),

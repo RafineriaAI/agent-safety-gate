@@ -210,7 +210,7 @@ def _wrap_check(policy: Policy, key: SigningKey, records_path: Path | None) -> i
     from agent_safety_gate.mcp_proxy import (
         GateProxy,
         default_records_path,
-        inspect_upstream,
+        describe_upstream,
         policy_skeleton,
     )
 
@@ -222,9 +222,12 @@ def _wrap_check(policy: Policy, key: SigningKey, records_path: Path | None) -> i
     print(f"records:   {proxy.state.records_path}")
     print(f"declared:  {', '.join(sorted(policy.tools)) or '(none)'}")
     print(f"unknown:   {policy.unknown_tool}")
+    print(f"mode:      {policy.mode}")
+    if not policy.enforcing:
+        print("           nothing will be blocked while the mode is `observe`")
     print()
     try:
-        names, undeclared = inspect_upstream(policy)
+        described = describe_upstream(policy)
     except Exception as exc:  # the upstream is someone else's process
         print(f"Could not start the upstream server: {exc}")
         print(
@@ -232,16 +235,29 @@ def _wrap_check(policy: Policy, key: SigningKey, records_path: Path | None) -> i
             "the policy file's directory as the working directory."
         )
         return 1
+    names = [str(tool["name"]) for tool in described]
+    undeclared = [name for name in names if policy.rule_for(name) is None]
+    annotated = sum(1 for tool in described if tool.get("annotations"))
     print(f"upstream exposes {len(names)} tool(s): {', '.join(names)}")
+    print(
+        f"{annotated} of {len(names)} publish MCP annotations "
+        "(readOnlyHint, destructiveHint, openWorldHint)"
+    )
     if not undeclared:
         print("Every upstream tool is declared in the policy.")
         return 0
     print(f"{len(undeclared)} not declared: {', '.join(undeclared)}")
     print(f"Calls to them will be treated as `unknown_tool: {policy.unknown_tool}`.")
     print()
-    print("Paste this into the policy and fill in each action class:")
+    print("Paste this into the policy, and read every line before you keep it:")
     print()
-    print(policy_skeleton(undeclared))
+    print(policy_skeleton(undeclared, described))
+    print()
+    print(
+        "A proposed class is the server describing itself. MCP calls those hints "
+        "and says a client must treat them as untrusted, so they are a starting "
+        "point for you, never a decision by the gate."
+    )
     return 0
 
 
@@ -419,7 +435,18 @@ def verify_command(args: argparse.Namespace) -> int:
                 if isinstance(record.get("signature"), dict)
             }
         )
+        observed = [
+            record
+            for record in read_records(path)
+            if record.get("enforcement") == "forwarded_not_enforced"
+        ]
         print("Chain intact, every record signed and every digest reproducible.")
+        if observed:
+            print(
+                f"{len(observed)} record(s) were decided but NOT enforced "
+                "(`mode: observe`): the gate would have blocked those calls and "
+                "they ran anyway."
+            )
         print(f"Signing key(s): {', '.join(keys)}")
         if args.public_key is None:
             print(

@@ -39,7 +39,17 @@ Every statement below is a decision made in this repository, in
 one YAML file:
 
 * **Which tools exist and what class of action each performs.** Declared by the
-  operator. Never inferred from a tool's name, description or arguments.
+  operator. Never inferred from a tool's name, description or arguments. The
+  declaration may be finer than one class per tool: an operator can map a class
+  to each value of a selector argument, because real tools multiplex a read and
+  a write behind one name. The gate reads the value the call carries and looks
+  it up; a call that carries no selector is reported as not measured rather than
+  given the default.
+* **What a server says about itself.** MCP servers may publish `readOnlyHint`,
+  `destructiveHint` and `openWorldHint`. `wrap --check` turns those into a
+  proposed policy entry for a human to confirm, and that is the only place they
+  are read. MCP defines them as hints a client must treat as untrusted, so they
+  never reach a decision.
 * **What each action class costs.** `read_only: 1000`, `irreversible: 4000`, and
   so on. These are weights in a file, not properties of the world.
 * **What counts as out of scope.** Literal prefix and domain matching against an
@@ -48,6 +58,12 @@ one YAML file:
   directory the operator controls.
 * **What self-attestation is.** The reserved `agent_safety_gate` key on a call.
 * **The thresholds.** `limit: 7000`, `warn_margin: 2000`.
+* **Whether a BLOCK is enforced.** `mode: enforce` refuses the call;
+  `mode: observe` records the identical decision and forwards it anyway. The
+  verdict never changes, which is why `mode` is *not* part of the decision
+  digest: the same call under both modes produces the same `input_sha256` and
+  the same `decision_hash`, and the envelope carries `policy_mode` and
+  `enforcement: forwarded_not_enforced` so an auditor sees which one was on.
 * **The human-readable reason and the remediation text.** The kernel returns a
   short reason of its own; the sentence a person reads is written here, from the
   signals, and the kernel's own reason is kept in `kernel_evidence`.

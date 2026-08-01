@@ -132,8 +132,11 @@ agent-safety-gate wrap --policy my_policy.yaml --check
 ```
 
 Uruchamia serwer docelowy, wypisuje jego narzędzia i drukuje blok polityki dla
-tych, których nie pokryłeś. Zostawia `action_class:` puste: brama nie zgaduje,
-co robi narzędzie, a zgadnięta klasa byłaby gorsza niż brak wpisu.
+tych, których nie pokryłeś - z klasą akcji wypełnioną wszędzie tam, gdzie serwer
+publikuje o sobie adnotacje MCP, oznaczoną jako propozycja, plus argument zakresu
+znaleziony w schemacie. Tam, gdzie serwer nic nie mówi, `action_class:` zostaje
+puste: brama nie zgaduje, co robi narzędzie, a zgadnięta klasa byłaby gorsza niż
+brak wpisu.
 
 Potem wskaż klientowi MCP bramę zamiast serwera:
 
@@ -319,6 +322,46 @@ katalogi i zapomniała o plikach w korzeniu repozytorium, więc edycja `README.m
 liczyła się jako poza zakresem. Jedno uruchomienie na prawdziwej pracy to
 wychwyciło. I to jest codzienne zastosowanie tego narzędzia: wyceluj je w pracę,
 którą już wykonałeś, i zobacz, co powiedziałaby o niej Twoja polityka.
+
+### Kalibracja na danych, których nikt z nas nie wyprodukował
+
+`python benchmarks/independent_replay.py`
+
+Wszystkie liczby wyżej pochodzą z ruchu wytworzonego na jednej maszynie przez
+ludzi, którzy napisali bramę. Ta nie: odtwarza opublikowane ślady OpenHands ze
+[zbioru na Hugging Face Hub](https://huggingface.co/datasets/nebius/SWE-rebench-openhands-trajectories) -
+inny agent, inny model, 38 cudzych repozytoriów, 2 525 wywołań narzędzi.
+
+| Co pokazała | Liczba |
+| --- | --- |
+| wywołań niezależnego agenta idących przez jeden shell „do wszystkiego" | 51,1% (własna sesja tego repo: 49,4%) |
+| wywołań narzędzia edytora, które są w rzeczywistości odczytem (`command: view`) | 63,8% |
+| wywołań zapisanych z inną klasą akcji, gdy polityka umie to wyrazić | 687 (27,2%) |
+
+Dwie z tych liczb zmieniły narzędzie.
+
+**Klasa na wartość argumentu.** Narzędzia edytora, które czyta i pisze, nie da
+się opisać jedną klasą na narzędzie, więc polityka może teraz deklarować klasę
+per wartość argumentu selektora. To nadal deklaracja - brama sprawdza wartość w
+Twoim pliku i niczego nie wnioskuje. Zmierzone uczciwie: przesuwa 40,1% wywołań
+do PASS wobec ostrożnej polityki jednoklasowej i **nic** wobec pragmatycznej;
+zawsze zmienia natomiast to, co rekord mówi o tym, co wywołanie zrobiło.
+
+**Przełącznik trybu.** Połowa realnej sesji idąca przez shell oznacza, że
+egzekwująca brama zatrzymuje połowę pracy pierwszego dnia. `mode: observe`
+zapisuje każdą decyzję i mimo to przepuszcza wywołanie, więc widzisz, co brama by
+zrobiła, zanim zacznie odmawiać. Ten sam werdykt, to samo uzasadnienie, ta sama
+remediacja; rekord niesie `policy_mode`, a `verify` wypisuje linię dla każdego
+wywołania zdecydowanego i nieegzekwowanego. To krok wdrożeniowy, nie miejsce na
+stałe.
+
+**I jedna rzecz, którą serwery już mówią.** MCP pozwala serwerowi publikować
+`readOnlyHint`, `destructiveHint` i `openWorldHint` o własnych narzędziach. Z 15
+narzędzi na trzech publicznych serwerach referencyjnych robi to 14. `wrap --check`
+wstawia je teraz jako *propozycje* do potwierdzenia, razem z argumentem zakresu
+znalezionym w schemacie. MCP mówi wprost, że adnotacje to hinty, które klient ma
+traktować jako niezaufane, więc nigdy nie docierają do decyzji bramy - trafiają
+wyłącznie do szkicu Twojej polityki.
 
 ### Ile kosztuje proxy na wywołanie
 
