@@ -208,6 +208,39 @@ A valid signature says the holder of that key signed the record. It does not say
 who the holder is. Pin the key you expect - that is what `--public-key` and the
 pin field on the page are for.
 
+## Works with what you already run
+
+Three doors, one gate, one record chain - all configuration, no code changes:
+
+* **MCP proxy** (`wrap`) - Claude Desktop, Cursor, Windsurf, Claude Code and
+  anything else with an `mcpServers` config points at the gate instead of the
+  server.
+* **Claude Code hook** (`hook`) - one entry in `.claude/settings.json` gates the
+  *native* tools (Bash, Edit, Write) that no MCP proxy can see. PASS stops
+  prompting, WARN asks with the reason, BLOCK denies with the remediation; a
+  missing policy never bricks the agent.
+* **Any framework** (`eval`) - a subprocess primitive: JSON in, verdict and
+  signed record out, exit codes 0/3/2.
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "agent-safety-gate hook" } ] }
+    ]
+  }
+}
+```
+
+Then calibrate on your own recorded traffic before you enforce anything:
+
+```bash
+agent-safety-gate calibrate .agent-safety-gate/records.jsonl --policy candidate.yaml
+```
+
+Snippets for every host, the verdict-to-permission mapping and the policy
+discovery rules are in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
+
 ## How it decides
 
 For every call the gate collects four signals, plus one observation about the
@@ -404,6 +437,24 @@ It is not a compliance assessment, it does not make a system compliant, and no
 one here is your legal adviser. Whether your system is in scope, and what your
 obligations are, is a question for people who do that for a living.
 
+## Alternatives, and what this is worth
+
+[docs/COMPARISON.md](docs/COMPARISON.md) places the gate among guardrails, MCP
+gateways, observability platforms, host permissions and sandboxes - including
+what each of them does that this does not, and when not to use this at all.
+Short version: they answer "is this content safe" or "what can it touch"; this
+answers "was it allowed by a declared policy, provably, offline".
+
+[docs/VALUE.md](docs/VALUE.md) is the appraisal we would want to read before
+adopting someone else's safety tool: which of the three pains is actually
+removed, which claims are still unproven (no external audit has accepted these
+records yet), and what would falsify the premise. The ROI model has no default
+numbers, on purpose:
+
+```bash
+python tools/roi_model.py --example
+```
+
 ## Dependency budget
 
 Standard library first. One sentence of justification per dependency, and adding
@@ -432,7 +483,8 @@ src/agent_safety_gate/
   records.py     canonical bytes, hash chain, offline verification
   signing.py     Ed25519
   mcp_proxy.py   the MCP integration, the only place that imports the MCP SDK
-  cli.py         demo, wrap, explain, verify
+  cli.py         demo, wrap, hook, eval, explain, verify, calibrate
+  integrations.py  the hook/eval/calibrate door: no framework required
 verifier/verify.html   one file, no network, drop a record file on it
 examples/              demo policy, demo tool server, a wrapped third-party server
 benchmarks/            workflow replay and proxy overhead, with their own README

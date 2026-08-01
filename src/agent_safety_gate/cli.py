@@ -1,12 +1,14 @@
-"""Command line interface: demo, wrap, explain, verify.
+"""Command line interface.
 
-Four commands, because four pains:
-
-* ``demo``    - see a blocked irreversible action and a green signature in under
-  five minutes, with no configuration at all.
-* ``wrap``    - put the gate in front of your own MCP server, configuration only.
-* ``explain`` - read a decision months later without reconstructing it from logs.
-* ``verify``  - check a chain offline, on the command line or in a browser.
+* ``demo``      - see a blocked irreversible action and a green signature in
+  under five minutes, with no configuration at all.
+* ``wrap``      - put the gate in front of an MCP server, configuration only.
+* ``hook``      - gate Claude Code's native tools as a PreToolUse hook.
+* ``eval``      - gate one call from any framework that can run a subprocess.
+* ``explain``   - read a decision months later without reconstructing it.
+* ``verify``    - check a chain offline, here or in a browser.
+* ``calibrate`` - replay recorded calls under a candidate policy before
+  enforcing it.
 
 Every error message ends with a next step.
 """
@@ -463,6 +465,133 @@ def verify_command(args: argparse.Namespace) -> int:
     return 1
 
 
+# ------------------------------------------------ eval / hook / calibrate
+
+
+def _integration_setup(
+    policy_arg: Path | None, records_arg: Path | None, key_arg: Path | None, cwd: Path
+) -> tuple[Policy, SigningKey, Path]:
+    from agent_safety_gate.integrations import (
+        IntegrationError,
+        find_policy,
+        records_path_for,
+    )
+
+    try:
+        policy = _resolve_policy(find_policy(policy_arg, cwd))
+    except IntegrationError as exc:
+        raise CliError(str(exc)) from exc
+    key = _resolve_key(key_arg, quiet=True)
+    return policy, key, records_path_for(policy, records_arg)
+
+
+def eval_command(args: argparse.Namespace) -> int:
+    import json as json_module
+
+    from agent_safety_gate.integrations import (
+        IntegrationError,
+        eval_payload,
+        evaluate_once,
+    )
+
+    if args.stdin:
+        try:
+            payload = json_module.loads(sys.stdin.read())
+        except json_module.JSONDecodeError as exc:
+            raise CliError(
+                f"stdin is not valid JSON ({exc.msg})\n"
+                'Next step: pipe {"tool": "name", "arguments": {...}} to this '
+                "command, or use --tool and --arguments."
+            ) from exc
+        tool = payload.get("tool") if isinstance(payload, dict) else None
+        arguments = payload.get("arguments") if isinstance(payload, dict) else None
+    else:
+        tool = args.tool
+        try:
+            arguments = json_module.loads(args.arguments) if args.arguments else {}
+        except json_module.JSONDecodeError as exc:
+            raise CliError(
+                f"--arguments is not valid JSON ({exc.msg})\n"
+                "Next step: quote it for your shell, e.g. "
+                '--arguments \'{"path": "src/a.py"}\''
+            ) from exc
+    if not isinstance(tool, str) or not tool:
+        raise CliError(
+            "no tool name given\n"
+            "Next step: pass --tool <name>, or --stdin with a JSON object "
+            'carrying "tool".'
+        )
+    if not isinstance(arguments, dict):
+        raise CliError("arguments must be a JSON object")
+
+    policy, key, records_path = _integration_setup(
+        args.policy, args.records, args.key, Path.cwd()
+    )
+    try:
+        result = evaluate_once(policy, key, tool, arguments, records_path, mode="eval")
+    except IntegrationError as exc:
+        raise CliError(str(exc)) from exc
+
+    if args.as_json:
+        print(json_module.dumps(eval_payload(result, policy), sort_keys=True))
+    else:
+        print(f"{result.decision.verdict}  {tool}")
+        print(f"  {result.decision.reason}")
+        print(f"  record {result.record['record_sha256']}")
+        print(f"  file   {records_path}")
+        if result.decision.verdict == "BLOCK" and not policy.enforcing:
+            print("  forwarded anyway: the policy is in `mode: observe`")
+    return 0 if result.forwarded else 3
+
+
+def hook_command(args: argparse.Namespace) -> int:
+    import json as json_module
+
+    from agent_safety_gate.integrations import (
+        IntegrationError,
+        evaluate_once,
+        hook_response,
+        parse_hook_input,
+    )
+
+    try:
+        tool, arguments, cwd = parse_hook_input(sys.stdin.read())
+        policy, key, records_path = _integration_setup(
+            args.policy, args.records, args.key, cwd
+        )
+        result = evaluate_once(
+            policy, key, tool, arguments, records_path, mode="claude_code_hook"
+        )
+    except (IntegrationError, CliError) as exc:
+        # Exit 1 is the hook contract's non-blocking error: the tool call
+        # proceeds through the normal permission flow and the message is
+        # logged. A misconfigured gate must be visible, and it must not brick
+        # the agent - the user configured a gate, not an outage.
+        print(f"agent-safety-gate hook: {exc}", file=sys.stderr)
+        return 1
+    response = hook_response(result, policy)
+    if response is not None:
+        print(json_module.dumps(response))
+    return 0
+
+
+def calibrate_command(args: argparse.Namespace) -> int:
+    from agent_safety_gate.integrations import (
+        IntegrationError,
+        calibrate,
+        load_candidate_policy,
+        print_calibration,
+    )
+
+    try:
+        policy = load_candidate_policy(args.policy)
+        result = calibrate(args.records, policy)
+    except IntegrationError as exc:
+        raise CliError(str(exc)) from exc
+    print_calibration(result, args.records, policy)
+    return 0
+
+
 # ------------------------------------------------------------------- main
 
 
@@ -524,6 +653,47 @@ def build_parser() -> argparse.ArgumentParser:
     )
     verify.add_argument("--verbose", action="store_true")
     verify.set_defaults(handler=verify_command)
+
+    evaluate = subcommands.add_parser(
+        "eval",
+        help="gate one tool call from any agent: argv or stdin in, verdict and "
+        "signed record out (exit 0 forward, 3 blocked, 2 error)",
+    )
+    evaluate.add_argument("--tool", default=None)
+    evaluate.add_argument(
+        "--arguments",
+        default=None,
+        help='the call arguments as JSON, e.g. \'{"path": "src/a.py"}\'',
+    )
+    evaluate.add_argument(
+        "--stdin",
+        action="store_true",
+        help='read {"tool": ..., "arguments": {...}} from stdin instead',
+    )
+    evaluate.add_argument("--policy", type=Path, default=None)
+    evaluate.add_argument("--records", type=Path, default=None)
+    evaluate.add_argument("--key", type=Path, default=None)
+    evaluate.add_argument("--json", action="store_true", dest="as_json")
+    evaluate.set_defaults(handler=eval_command)
+
+    hook = subcommands.add_parser(
+        "hook",
+        help="run as a Claude Code PreToolUse hook: gates the host's native "
+        "tools, which no MCP proxy can see",
+    )
+    hook.add_argument("--policy", type=Path, default=None)
+    hook.add_argument("--records", type=Path, default=None)
+    hook.add_argument("--key", type=Path, default=None)
+    hook.set_defaults(handler=hook_command)
+
+    calibrate_parser = subcommands.add_parser(
+        "calibrate",
+        help="replay recorded calls under a candidate policy and show which "
+        "verdicts would change",
+    )
+    calibrate_parser.add_argument("records", type=Path)
+    calibrate_parser.add_argument("--policy", type=Path, required=True)
+    calibrate_parser.set_defaults(handler=calibrate_command)
 
     return parser
 

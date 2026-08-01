@@ -214,6 +214,40 @@ Poprawny podpis mówi, że rekord podpisał posiadacz tego klucza. Nie mówi, ki
 jest ten posiadacz. Przypnij klucz, którego się spodziewasz - po to jest
 `--public-key` i pole na stronie.
 
+## Działa z tym, co już masz
+
+Troje drzwi, jedna brama, jeden łańcuch rekordów - wyłącznie konfiguracja, zero
+zmian w kodzie:
+
+* **Proxy MCP** (`wrap`) - Claude Desktop, Cursor, Windsurf, Claude Code i
+  wszystko inne z konfiguracją `mcpServers` wskazuje bramę zamiast serwera.
+* **Hook Claude Code** (`hook`) - jeden wpis w `.claude/settings.json` bramkuje
+  narzędzia *natywne* (Bash, Edit, Write), których żadne proxy MCP nie widzi.
+  PASS przestaje pytać, WARN pyta z uzasadnieniem, BLOCK odmawia z remediacją;
+  brak polityki nigdy nie unieruchamia agenta.
+* **Dowolny framework** (`eval`) - prymityw subprocess: JSON na wejściu, werdykt
+  i podpisany rekord na wyjściu, kody wyjścia 0/3/2.
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "agent-safety-gate hook" } ] }
+    ]
+  }
+}
+```
+
+Potem skalibruj na własnym zarejestrowanym ruchu, zanim cokolwiek zaczniesz
+egzekwować:
+
+```bash
+agent-safety-gate calibrate .agent-safety-gate/records.jsonl --policy candidate.yaml
+```
+
+Snippety dla każdego hosta, mapowanie werdyktów na uprawnienia i reguły
+wykrywania polityki są w [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
+
 ## Jak podejmuje decyzję
 
 Dla każdego wywołania brama zbiera cztery sygnały plus jedną obserwację o samym
@@ -412,6 +446,25 @@ To nie jest ocena zgodności, nie czyni systemu zgodnym i nikt tutaj nie jest
 Twoim doradcą prawnym. Czy Twój system jest w zakresie i jakie masz obowiązki, to
 pytanie do ludzi, którzy robią to zawodowo.
 
+## Alternatywy i ile to jest warte
+
+[docs/COMPARISON.md](docs/COMPARISON.md) umieszcza bramę wśród guardraili,
+gatewayów MCP, platform obserwowalności, uprawnień hosta i sandboxów - łącznie z
+tym, co każde z nich robi, a czego ta brama nie robi, i kiedy nie używać jej
+wcale. W skrócie: tamte odpowiadają na „czy ta treść jest bezpieczna" albo „co
+to może fizycznie dotknąć"; ta odpowiada na „czy zadeklarowana polityka na to
+pozwoliła - dowodliwie, offline".
+
+[docs/VALUE.md](docs/VALUE.md) to wycena, którą sami chcielibyśmy przeczytać
+przed adopcją cudzego narzędzia bezpieczeństwa: który z trzech bólów jest
+naprawdę usunięty, które twierdzenia pozostają nieudowodnione (żaden zewnętrzny
+audyt nie przyjął jeszcze tych rekordów) i co sfalsyfikowałoby założenie.
+Model ROI celowo nie ma żadnych liczb domyślnych:
+
+```bash
+python tools/roi_model.py --example
+```
+
 ## Budżet zależności
 
 Najpierw biblioteka standardowa. Jedno zdanie uzasadnienia na zależność, a
@@ -440,7 +493,8 @@ src/agent_safety_gate/
   records.py     kanoniczne bajty, łańcuch skrótów, weryfikacja offline
   signing.py     Ed25519
   mcp_proxy.py   integracja MCP, jedyne miejsce importujące SDK MCP
-  cli.py         demo, wrap, explain, verify
+  cli.py         demo, wrap, hook, eval, explain, verify, calibrate
+  integrations.py  drzwi hook/eval/calibrate: bez żadnego frameworka
 verifier/verify.html   jeden plik, bez sieci, upuść na niego plik rekordów
 examples/              polityka demo, serwer narzędzi demo, opakowany serwer zewnętrzny
 benchmarks/            odtworzenie sesji i narzut proxy, z własnym README
