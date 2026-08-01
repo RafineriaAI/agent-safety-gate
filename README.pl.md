@@ -149,7 +149,10 @@ Potem wskaż klientowi MCP bramę zamiast serwera:
 ```
 
 PASS jest przekazywany bez zmian, WARN jest przekazywany z ostrzeżeniem
-doklejonym do odpowiedzi, BLOCK nigdy nie dociera do narzędzia. Gotowy przykład
+doklejonym do odpowiedzi, BLOCK nigdy nie dociera do narzędzia. To pasuje do
+wąskiego, nazwanego zestawu narzędzi; postaw to przed jednym shellem „do
+wszystkiego" i dostaniesz approval fatigue - zmierzone, nie zadeklarowane, w
+[Użyteczność na prawdziwej sesji](#użyteczność-na-prawdziwej-sesji). Gotowy przykład
 z serwerem spoza tego repozytorium jest w
 [`examples/public_server_policy.yaml`](examples/public_server_policy.yaml).
 
@@ -273,6 +276,50 @@ pokazuje, że polityka pokrywa przypadki, o których pomyśleliśmy - i nic pona
 [benchmarks/README.md](benchmarks/README.md) mówi, czego jeszcze te liczby nie
 mówią i jak zastąpić je liczbami z Twojej własnej sesji.
 
+### Użyteczność na prawdziwej sesji
+
+```bash
+python benchmarks/session_replay.py ~/.claude/projects/<projekt>/<id-sesji>.jsonl
+```
+
+Uruchom to na własnej sesji. Poniższe liczby pochodzą z 269 wywołań narzędzi z
+sesji agenta kodującego, która zbudowała to repozytorium, odtworzonych wobec
+starannej pierwszej wersji polityki dla tego zestawu narzędzi. Nic w nim nie było
+oznaczone jako łagodne czy ryzykowne, a polityki nie poprawiano po zobaczeniu
+wyniku.
+
+Samego śladu nie dołączamy: to dane sesji i nie nasza sprawa, żeby je
+publikować. Traktuj więc te cztery liczby jako rozpisany przykład, a nie
+benchmark do powtórzenia - komenda wyżej daje wersję, która się liczy, czyli
+zmierzoną na Twoim własnym ruchu.
+
+| | |
+| --- | --- |
+| po cichu (PASS) | 118 (43,9%) |
+| oflagowane (WARN) | 18 (6,7%) |
+| przerwane (BLOCK) | 133 (49,4%) |
+| ile osobnych zgód by to wymagało | 133 |
+
+**Połowa prawdziwej sesji by się zatrzymała, i całość to jedno narzędzie.**
+Każde przerwanie to wywołanie `Bash`. Brama przypisuje klasę akcji per
+narzędzie; shell może zrobić wszystko, więc jedyną uczciwą klasą jest dla niego
+najgorsza rzecz, jaką potrafi - a brama nie przeczyta treści komendy, żeby
+uznać inaczej. Narzędzie „do wszystkiego" jest więc albo zatwierdzane za każdym
+razem, albo blokowane za każdym razem.
+
+Czyli: przed agentem, którego narzędzia są wąskie i nazwane - serwer MCP z
+`run_tests`, `git_commit`, `deploy` - klasy pasują, a przerwania trafiają tam,
+gdzie operator chciał być pytany. Przed gołym shellem to approval fatigue z
+dodatkowymi krokami. To realne ograniczenie MVP, znalezione pomiarem, nie
+argumentacją; [benchmarks/README.md](benchmarks/README.md) rozpisuje je do
+końca.
+
+18 ostrzeżeń okazało się błędem polityki, nie ryzykiem: allowlista wymieniała
+katalogi i zapomniała o plikach w korzeniu repozytorium, więc edycja `README.md`
+liczyła się jako poza zakresem. Jedno uruchomienie na prawdziwej pracy to
+wychwyciło. I to jest codzienne zastosowanie tego narzędzia: wyceluj je w pracę,
+którą już wykonałeś, i zobacz, co powiedziałaby o niej Twoja polityka.
+
 ### Ile kosztuje proxy na wywołanie
 
 `python benchmarks/proxy_overhead.py`
@@ -383,6 +430,9 @@ Do tego czasu: wszystkie prawa zastrzeżone, ewaluacja mile widziana.
 
 ## Czego nie ma w tej wersji
 
+Jedna klasa akcji na narzędzie, co pasuje do narzędzi nazwanych, a nie do
+shella ogólnego przeznaczenia - zobacz
+[Użyteczność na prawdziwej sesji](#użyteczność-na-prawdziwej-sesji).
 MCP jest jedyną integracją; LangChain to kolejna faza. Zgody nie wygasają.
 Proxowana jest tylko capability `tools`, więc prompty, zasoby i sampling nie są
 przekazywane. Zarządzanie kluczami produkcyjnymi jest poza zakresem. Rzeczy

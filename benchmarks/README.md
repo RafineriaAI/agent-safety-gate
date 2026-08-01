@@ -1,11 +1,15 @@
 # Benchmarks
 
-Two questions, two commands.
+Three questions, three commands.
 
 ```bash
-python benchmarks/workflow_replay.py
-python benchmarks/proxy_overhead.py
+python benchmarks/workflow_replay.py                            # does the policy do what it says
+python benchmarks/session_replay.py <your-session>.jsonl        # would anyone keep it switched on
+python benchmarks/proxy_overhead.py                             # what does it cost per call
 ```
+
+The second one is the uncomfortable one, and it is the reason the first one is
+not enough.
 
 ## What `workflow_replay.py` measures
 
@@ -72,6 +76,98 @@ python benchmarks/workflow_replay.py --trace your_session.jsonl --policy your_po
 Any call you already know the right answer for is worth more than the whole
 bundled trace. The false alarm rate on your own traffic is the number that
 decides whether your team will keep the gate switched on.
+
+## What `session_replay.py` measures, and what it found
+
+A synthetic trace can only tell you that a policy does what the policy says. It
+cannot tell you whether anyone would live with the result. For that you need a
+session nobody wrote for the benchmark.
+
+The worked example below is one: the 269 tool calls of the coding-agent session
+that built this repository, extracted from its transcript. Nothing in it is
+labelled benign or risky - that labelling is exactly what makes a self-authored
+benchmark worthless. The only claim made about it is one you can check: the
+session ran, the work was accepted, and the repository it produced is the one you
+are reading.
+
+The trace is **not committed**. It is session data, and publishing someone's
+working transcript is not a decision a benchmark gets to make. So the numbers
+below are a worked example, not something you can re-run here - `Running it on
+your own session` at the end of this section is the part that matters.
+
+The policy it is replayed against, `coding_agent_policy.yaml`, is a careful
+first cut for that tool surface: read and search are read-only, writes and edits
+are reversible inside the tree, a shell is irreversible. It has **not** been
+adjusted after seeing the results.
+
+```text
+tool calls          269
+silent  (PASS)      118   43.9%
+flagged (WARN)       18    6.7%
+interrupted (BLOCK) 133   49.4%
+distinct approvals  133
+```
+
+### Half of a real session would have stopped
+
+That is the finding, and it is not a tuning problem. Every one of the 133
+interruptions is a `Bash` call, and all 130-odd shell calls in the session are
+one tool with a free-form argument.
+
+The gate assigns an action class per tool. A shell can do anything, so the only
+honest class for it is the worst thing it can do, and the gate refuses to look
+at the command text to decide otherwise - it has no classifier, by design. The
+result is that a do-anything tool is either approved every time or blocked every
+time. There is no third answer available in this model, and pretending otherwise
+would mean guessing.
+
+The approval design does not rescue it either. An approval is bound to one call
+digest, so repeated identical calls share one - but in this session all 133
+blocked calls were different commands, so the reuse is worth nothing here.
+
+**What this means for where the gate is useful today.** In front of an agent
+whose tools are narrow and named - an MCP server exposing `run_tests`,
+`git_commit`, `deploy` - the classes fit and the interruptions land only where an
+operator wanted to be asked. In front of a raw shell, it is approval fatigue with
+extra steps. That is a real limit of the MVP, found by measuring rather than by
+argument, and the README says so.
+
+As a partial measure of the remedy: 32 of the 133 blocked shell calls are
+inspection or verification commands (`pytest`, `ruff`, `mypy`, `git status`,
+`git diff`, `ls`, `cat`). Exposing those as their own read-only tools would leave
+101 interruptions. That is a statement about the agent's tool surface, not about
+the gate: the gate never inspects a shell command and has no opinion on one.
+
+### The warnings were a policy bug, not a risk
+
+All 18 WARNs are worth reading one by one, because 11 of them are the same
+mistake: the allowlist listed directories (`src/`, `tests/`, `docs/`, ...) and
+forgot the files at the root of the repository. Editing `README.md`,
+`pyproject.toml`, `LICENSE` or `NOTICE` therefore counted as out of scope.
+
+Nothing was at risk. The policy was simply wrong, and one run against a real
+session found it in seconds. That is the everyday use of this tool: point it at
+work you have already done and see what your policy would have said about it.
+
+The remaining warnings are correct - two writes genuinely outside the workspace,
+and five calls to browser tools the policy had never heard of, which the gate
+named rather than guessed at.
+
+### Running it on your own session
+
+```bash
+python benchmarks/session_replay.py ~/.claude/projects/<project>/<session-id>.jsonl
+```
+
+Any transcript with `tool_use` blocks in assistant messages works. File contents
+are never read into the trace - only the arguments a policy can scope on - and
+paths outside the workspace are redacted to a placeholder, so a trace you save
+does not carry your home directory. `--trace-out` writes the extracted calls if
+you want to inspect or keep them; `--no-redact` turns the redaction off for a
+local run.
+
+A transcript grows while the session it records is still running, which is why
+the committed number comes from a saved trace rather than from a live log.
 
 ## What `proxy_overhead.py` measures
 

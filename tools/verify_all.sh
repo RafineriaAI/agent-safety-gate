@@ -44,6 +44,18 @@ run_step "vendored kernel is unmodified" "$PYTHON" tools/check_vendor.py
 run_step "committed sample matches the code" "$PYTHON" tools/regenerate_examples.py --check
 run_step "documentation claims audit" "$PYTHON" tools/audit_claims.py
 run_step "workflow benchmark, deterministic" "$PYTHON" benchmarks/workflow_replay.py --no-latency
+
+# The real-session replay needs a trace derived from someone's transcript.
+# Committing that is the repository owner's decision, so this step reports
+# rather than fails when the trace is absent.
+if [ -f benchmarks/traces/real_session.jsonl ]; then
+  run_step "real session replay" "$PYTHON" benchmarks/session_replay.py     benchmarks/traces/real_session.jsonl
+else
+  printf '
+=== -. real session replay
+    skipped: benchmarks/traces/real_session.jsonl is not present
+'
+fi
 run_step "README quickstart, verbatim, in a clean venv" bash tools/quickstart_check.sh
 
 printf '\n============================================\n'

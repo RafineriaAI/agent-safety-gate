@@ -145,7 +145,10 @@ Then point your MCP client at the gate instead of the server:
 ```
 
 PASS is forwarded unchanged, WARN is forwarded with the warning attached to the
-response, BLOCK never reaches the tool. A worked example against a third-party
+response, BLOCK never reaches the tool. This fits a tool surface that is narrow
+and named; put it in front of one do-anything shell tool and you get approval
+fatigue, which is measured rather than asserted in
+[Usability on a real session](#usability-on-a-real-session). A worked example against a third-party
 server is in [`examples/public_server_policy.yaml`](examples/public_server_policy.yaml).
 
 ## Read a decision
@@ -267,6 +270,48 @@ the policy covers the cases we thought of, and nothing more.
 [benchmarks/README.md](benchmarks/README.md) says what else these numbers do not
 tell you, and how to replace them with numbers from your own session.
 
+### Usability on a real session
+
+```bash
+python benchmarks/session_replay.py ~/.claude/projects/<project>/<session-id>.jsonl
+```
+
+Run that on a session of your own. The numbers below come from the 269 tool
+calls of the coding-agent session that built this repository, replayed against a
+careful first-cut policy for that tool surface. Nothing in it was labelled benign
+or risky, and the policy was not adjusted after seeing the result.
+
+The trace itself is not shipped: it is session data, and it is not ours to
+publish. So treat these four numbers as a worked example rather than as a
+benchmark you can re-run - the command above gives you the version that counts,
+which is the one measured on your own traffic.
+
+| | |
+| --- | --- |
+| silent (PASS) | 118 (43.9%) |
+| flagged (WARN) | 18 (6.7%) |
+| interrupted (BLOCK) | 133 (49.4%) |
+| distinct approvals those would need | 133 |
+
+**Half of a real session would have stopped, and all of it was one tool.** Every
+interruption is a `Bash` call. The gate assigns an action class per tool; a shell
+can do anything, so the only honest class for it is the worst thing it can do,
+and the gate will not read the command text to decide otherwise. A do-anything
+tool is therefore approved every time or blocked every time.
+
+So: in front of an agent whose tools are narrow and named - an MCP server
+exposing `run_tests`, `git_commit`, `deploy` - the classes fit and the
+interruptions land where an operator wanted to be asked. In front of a raw
+shell, this is approval fatigue with extra steps. That is a real limit of the
+MVP, found by measuring instead of arguing, and
+[benchmarks/README.md](benchmarks/README.md) works through it.
+
+The 18 warnings turned out to be a bug in the policy rather than a risk: the
+allowlist named directories and forgot the files at the repository root, so
+editing `README.md` counted as out of scope. One run against real work found it.
+That is the everyday use of this: point it at work you have already done and see
+what your policy would have said.
+
 ### What the proxy costs per call
 
 `python benchmarks/proxy_overhead.py`
@@ -378,6 +423,8 @@ each one costs. Until then: all rights reserved, evaluation encouraged.
 
 ## Not in this version
 
+One action class per tool, which fits named tools and not a general-purpose
+shell - see [Usability on a real session](#usability-on-a-real-session).
 MCP is the only integration; LangChain is a later phase. Approvals do not expire.
 Only the `tools` capability is proxied, so prompts, resources and sampling are
 not forwarded. Production key management is out of scope. Open issues, not `TODO`
