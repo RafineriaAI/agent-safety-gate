@@ -92,7 +92,7 @@ warn_unused_configs = true
 exclude = "src/agent_safety_gate/_vendor/"
 
 [[tool.mypy.overrides]]
-module = ["agent_safety_gate._vendor.*", "yaml", "mcp.*"]
+module = ["agent_safety_gate._vendor.*", "yaml", "mcp.*", "agentdojo.*"]
 ignore_missing_imports = true
 follow_imports = "skip"
 

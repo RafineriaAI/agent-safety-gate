@@ -75,3 +75,32 @@ The upstream terms grant no copying or redistribution rights to third parties.
 `agent-safety-gate` and `aos-kernel` share one copyright holder, who authorises
 this vendored copy. Third parties must not infer any right to redistribute the
 vendored file separately from the terms above.
+
+--------------------------------------------------------------------------------
+Derived data: benchmarks/traces/agentdojo_labelled.jsonl
+--------------------------------------------------------------------------------
+
+Extracted from AgentDojo (https://github.com/ethz-spylab/agentdojo), ETH Zurich
+SPY Lab, MIT licence. The file contains tool calls and benign/risky labels
+derived from AgentDojo's own task definitions by benchmarks/agentdojo_extract.py.
+No AgentDojo source code is redistributed here.
+
+    MIT License
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.

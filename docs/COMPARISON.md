@@ -43,6 +43,14 @@ Feature-level statements about this repository, each with the command that
 demonstrates it. "We did not find" means: not documented as a feature by the
 tools linked above at the time of writing - check their pages, they change.
 
+**A later scan found neighbours the first pass missed, and two of them make
+parts of this table less exclusive than it reads.** They are listed under
+"Closest neighbours" below. The honest summary: hash-chained runtime evidence
+for agents is no longer unusual, external anchoring has moved from differentiator
+to table stakes, and one IETF draft already specifies the receipt format with
+anchoring as a MUST. What has not turned up elsewhere is a record that replays
+its own arithmetic and thresholds after its policy file is gone.
+
 | Property | Here | Prove it |
 | --- | --- | --- |
 | Deterministic decisions: identical call, identical bytes, identical digest | yes, byte-for-byte, across processes and platforms | `python -m pytest tests/test_records.py -q` |
@@ -84,3 +92,18 @@ These compose, and the composition is the sensible deployment:
 * You need content-level protection today: wrong category, see above.
 * You cannot run a proxy or a hook in front of the agent at all: the gate can
   only decide about calls it sees.
+
+## Closest neighbours
+
+Found in a market scan after this document was first written. Each does
+something this repository does not.
+
+| Project | What it is | What it has that this does not |
+| --- | --- | --- |
+| [Halo](https://news.ycombinator.com/item?id=48818098) | Open-source (Apache-2.0) in-process recorder for agent actions, hash-chained, ~4.3k lines Python | Nothing this lacks - and it hits the same wall: its author states it proves integrity, not completeness. Its Show HN comments raise the self-held-chain problem verbatim. Different shape: a recorder, not a gate; it does not decide anything |
+| [ArkForge](https://arkforge.tech/en/index.html) | Certifying proxy for agent calls | **External anchoring, shipped**: signed, timestamped by a WebTrust authority, anchored in Sigstore's public transparency log. This is the gap in `verify`'s own output |
+| [draft-marques-asqav-compliance-receipts](https://datatracker.ietf.org/doc/draft-marques-asqav-compliance-receipts/) | IETF individual draft, rev 07, signed action receipts for AI agents | A specified format with RFC 3161 / OpenTimestamps anchoring as MUST, an `approver_id` field, and mapping to nine regulatory regimes. Individual submission, not IETF-endorsed, expires January 2027 |
+
+The consequence for anyone reading this to decide something: if you need to hand
+a record to somebody who does not trust you, the anchoring gap matters more than
+anything in the table above, and this repository does not close it.
