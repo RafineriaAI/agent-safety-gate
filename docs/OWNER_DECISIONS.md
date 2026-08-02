@@ -12,11 +12,17 @@ now holds them in sync.
 The reasoning below is kept because it records what the choice cost. The
 deciding argument was not in the table: what survives adversarial reading in this
 repository is the *record*, not the gate. Gates are commodity - published specs
-do deterministic authorisation with signed audit logs, for free. A record format
-only becomes something an auditor recognises if other people's tooling can read
-and write it, and tooling vendors do not build on non-OSI licences. Apache-2.0 is
-therefore the choice that serves the asset; BSL would have protected the wrong
-thing.
+do deterministic authorisation with signed audit logs, for free.
+
+The first version of this note went on to say that Apache-2.0 was the choice
+because it lets a record format spread and become something an auditor
+recognises. That part was too optimistic, and a later market scan corrected it:
+`draft-marques-asqav-compliance-receipts` at IETF already specifies signed action
+receipts for AI agents, with external anchoring as a MUST and an approver field,
+mapped across nine regulatory regimes. Owning the format is not on the table.
+Being readable by whatever format wins is, and non-OSI licences are excluded from
+that by tooling vendors who will not build on them. The conclusion stands; the
+reason is compatibility, not ownership.
 
 The original analysis, unedited:
 
