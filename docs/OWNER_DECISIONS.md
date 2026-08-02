@@ -3,11 +3,22 @@
 Three things in this repository are not engineering calls. They are flagged here
 rather than resolved.
 
-## 1. The licence
+## 1. The licence - DECIDED 2026-08-02: Apache-2.0
 
-`LICENSE` is a placeholder. Nothing else in the repository can be finished until
-this is settled, because the licence decides who can run the tool at all, and
-`pyproject.toml`, both READMEs and `LICENSE` must be updated together.
+`LICENSE` carries the Apache License 2.0. `pyproject.toml`, both READMEs and
+`NOTICE` were updated in the same change, and `tests/test_project_constraints.py`
+now holds them in sync.
+
+The reasoning below is kept because it records what the choice cost. The
+deciding argument was not in the table: what survives adversarial reading in this
+repository is the *record*, not the gate. Gates are commodity - published specs
+do deterministic authorisation with signed audit logs, for free. A record format
+only becomes something an auditor recognises if other people's tooling can read
+and write it, and tooling vendors do not build on non-OSI licences. Apache-2.0 is
+therefore the choice that serves the asset; BSL would have protected the wrong
+thing.
+
+The original analysis, unedited:
 
 **The trade-off worth naming first:** a restrictive licence is itself a barrier
 to entry. This product's whole argument is that an evaluator can go from `pip
@@ -50,9 +61,10 @@ which is the minimum needed to turn "signed by some key" into "signed by ours".
 
 ## 3. Publishing
 
-The package name `agent-safety-gate` is not reserved on PyPI. Until it is
-published, the quickstart installs from a checkout, and the README says so.
-Publishing requires the licence decision first.
+The package name `agent-safety-gate` is not reserved on PyPI (checked
+2026-08-02: still free). The licence decision that blocked publishing is made,
+so the remaining step is a release, not a decision. Until it is published, the
+quickstart installs from a checkout, and the README says so.
 
 The repository is prepared for `git push` with full history. See
 [DELIVERY.md](DELIVERY.md).

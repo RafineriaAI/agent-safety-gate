@@ -511,9 +511,15 @@ against the vendored copy.
 
 ## Licence
 
-Not yet chosen. [LICENSE](LICENSE) is a placeholder and
-[docs/OWNER_DECISIONS.md](docs/OWNER_DECISIONS.md) sets out the options and what
-each one costs. Until then: all rights reserved, evaluation encouraged.
+[Apache-2.0](LICENSE), the same licence as `aos-kernel` and `aos-workflow-gate`.
+Use it, change it, ship it in a closed product, run it in your own pipeline. The
+one thing it does not grant is the AOS and RafineriaAI names: a fork may say it
+is based on this, and may not present itself as an official release. See
+[NOTICE](NOTICE).
+
+The record format matters more than this code does. Apache-2.0 is what lets
+other people's tooling read and write these records, which is the only way the
+format becomes something an auditor recognises.
 
 ## Not in this version
 
