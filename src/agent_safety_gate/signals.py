@@ -273,19 +273,48 @@ def _approval_signal(
             measured=True,
             detail=f"approval file {path.name} must contain a JSON object",
         )
+    # The digest binds WHAT was approved. Who approved it, and on what
+    # authority, is a separate question, and an approval file that answers
+    # neither should not read the same as one that answers both. Field names
+    # follow draft-marques-asqav-compliance-receipts so an approval written for
+    # that profile is understood here without translation.
+    approver = payload.get("approver_id") or payload.get("approved_by")
+    attributed = bool(
+        isinstance(payload.get("approver_id"), str)
+        and payload["approver_id"].strip()
+        and isinstance(payload.get("acceptance_reason"), str)
+        and payload["acceptance_reason"].strip()
+    )
+    if attributed:
+        detail = (
+            f"an approval bound to this exact call exists at {path.name}, "
+            f"naming approver_id {payload['approver_id']!r} with a stated "
+            "reason. The gate records that name; it cannot verify that the "
+            "person behind it exists or was entitled to approve."
+        )
+    else:
+        missing = (
+            "approver_id" if not payload.get("approver_id") else "acceptance_reason"
+        )
+        detail = (
+            f"an approval bound to this exact call exists at {path.name}, but it "
+            f"carries no {missing}. It establishes what was approved and not by "
+            "whom, which is the weaker of the two for anyone who has to show "
+            "that a competent person decided."
+        )
     return Signal(
         id=SIGNAL_APPROVAL_PRESENT,
-        value="present",
+        value="present" if attributed else "present_unattributed",
         source=(
             f"approvals_dir:{policy.approvals_dir}"
             f"#{sha256_hex_text(path.read_text(encoding='utf-8'))[:12]}"
+            + (f" approver:{approver}" if attributed else "")
         ),
         independent=True,
         measured=True,
         detail=(
-            f"an approval bound to this exact call exists at {path.name}. "
-            "Independence of this signal is a deployment property: the gated "
-            "agent must not be able to write to the approvals directory."
+            detail + " Independence of this signal is a deployment property: "
+            "the gated agent must not be able to write to the approvals directory."
         ),
     )
 

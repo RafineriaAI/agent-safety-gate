@@ -115,12 +115,19 @@ def test_no_language_model_client_is_imported() -> None:
     assert not offenders, offenders
 
 
-def test_the_gate_makes_no_network_calls() -> None:
-    """The proxy talks to a child process over stdio. Nothing here dials out."""
+#: Anchoring asks a third party for a timestamp, so it is the one module that
+#: must reach the network. It is never on the decision path: nothing in
+#: `gate.py`, `signals.py` or `policy.py` imports it, and a call is decided
+#: whether or not it is ever anchored. The exemption is this narrow on purpose.
+NETWORK_EXEMPT = {"anchoring.py"}
+
+
+def test_only_anchoring_reaches_the_network() -> None:
+    """Deciding a call never dials out. Anchoring it deliberately does."""
     forbidden = ("import requests", "import httpx", "import socket", "urllib.request")
     offenders: list[str] = []
     for path in SOURCE.rglob("*.py"):
-        if VENDOR in path.parents:
+        if VENDOR in path.parents or path.name in NETWORK_EXEMPT:
             continue
         text = path.read_text(encoding="utf-8")
         offenders.extend(
@@ -202,3 +209,10 @@ def test_the_licence_is_still_flagged_for_the_owner() -> None:
             "README.pl.md, pyproject.toml and this test together."
         )
     assert "docs/OWNER_DECISIONS.md" in licence
+
+
+def test_the_decision_path_does_not_import_anchoring() -> None:
+    """The exemption above is only safe while nothing that decides uses it."""
+    for name in ("gate.py", "signals.py", "policy.py", "records.py"):
+        text = (SOURCE / name).read_text(encoding="utf-8")
+        assert "anchoring" not in text, f"{name} imports anchoring"

@@ -129,7 +129,9 @@ def test_independent_approval_unblocks_exactly_one_call(
 
     approved = gate.evaluate(call("run_shell", {"command": "make release"}))
     signals = {signal.id: signal for signal in approved.signals}
-    assert signals[SIGNAL_APPROVAL_PRESENT].value == "present"
+    # A bare `approved_by` binds what was approved and not who by, and the
+    # record now says which of the two it got.
+    assert signals[SIGNAL_APPROVAL_PRESENT].value == "present_unattributed"
     assert signals[SIGNAL_APPROVAL_PRESENT].independent is True
     # The approval is bound to the arguments: one changed character and it is
     # a different call again.
