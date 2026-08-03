@@ -521,9 +521,15 @@ wobec prawdziwego jądra, a nie wobec vendorowanej kopii.
 
 ## Licencja
 
-Jeszcze nie wybrana. [LICENSE](LICENSE) to placeholder, a
-[docs/OWNER_DECISIONS.md](docs/OWNER_DECISIONS.md) rozpisuje opcje i ich koszty.
-Do tego czasu: wszystkie prawa zastrzeżone, ewaluacja mile widziana.
+[Apache-2.0](LICENSE), ta sama co w `aos-kernel` i `aos-workflow-gate`. Możesz
+używać, zmieniać, wypuścić w zamkniętym produkcie, uruchomić we własnym
+pipelinie. Jedyne, czego licencja nie daje, to nazwy AOS i RafineriaAI: fork może
+napisać, że jest na tym oparty, i nie może przedstawiać się jako oficjalne
+wydanie. Zobacz [NOTICE](NOTICE).
+
+Format rekordu znaczy więcej niż ten kod. Apache-2.0 jest tym, co pozwala obcym
+narzędziom czytać i pisać te rekordy — a to jedyna droga, żeby format stał się
+czymś, co audytor rozpoznaje.
 
 ## Czego nie ma w tej wersji
 

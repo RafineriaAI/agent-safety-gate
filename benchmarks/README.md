@@ -6,6 +6,7 @@ Four questions, four commands.
 python benchmarks/workflow_replay.py                            # does the policy do what it says
 python benchmarks/session_replay.py <your-session>.jsonl        # would anyone keep it switched on
 python benchmarks/independent_replay.py                         # what happens on data none of us made
+python benchmarks/agentdojo_replay.py                           # the same, on data that is also labelled
 python benchmarks/proxy_overhead.py                             # what does it cost per call
 ```
 
