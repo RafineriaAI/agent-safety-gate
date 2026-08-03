@@ -26,55 +26,72 @@ weaken any claim made by the kernel about itself.
 Upstream NOTICE (RafineriaAI/aos-kernel)
 --------------------------------------------------------------------------------
 
-AOS Limited Public Demonstrator
+AOS Kernel
+Copyright 2026 Szymon Hetnar
 
-Copyright (c) 2026 Szymon Hetnar. All rights reserved.
+This product includes software developed by Szymon Hetnar (RafineriaAI).
 
-This repository is a limited public demonstrator. It intentionally excludes
-production-system code, controlled deployment material, production security
-material, and delivery material.
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this file except in compliance with the License. You may obtain a copy of the
+License at
 
-AOS is the author's proprietary technology designation for the runtime
-assurance method demonstrated in this repository and for related unpublished
-extensions.
+    http://www.apache.org/licenses/LICENSE-2.0
 
-This repository is a limited public disclosure. The author reserves all rights,
-to the extent available under applicable law, in the AOS name, public materials,
-unpublished implementation details, confidential know-how, production
-architecture, calibration methods, signal-extraction procedures, domain
-adaptations, and future protected developments.
+Unless required by applicable law or agreed to in writing, software distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied. See the License for the
+specific language governing permissions and limitations under the License.
 
-No license is granted to copy, modify, distribute, sublicense, host, sell,
-commercialize, incorporate, train on, benchmark against as a product substitute,
-or create derivative works from this software or documentation without prior
-written permission from the copyright holder.
+Trademarks
+----------
 
-No patent license, trademark license, trade-secret license, database right,
-model-training right, or right to use AOS names, marks, product positioning, or
-delivery materials is granted by publication of this repository.
+The Apache License, Version 2.0 does not grant permission to use the trade
+names, trademarks, service marks, or product names of the licensor, except as
+required for reasonable and customary use in describing the origin of the work.
 
-No rights are granted to commercialize, rebrand, sublicense, or represent
-derivative systems as AOS.
+"AOS", "AOS Kernel", "agent-safety-gate", "aos-workflow-gate", and "RafineriaAI"
+are used by the author as product and brand designations. Forks and derivative works are welcome
+under the License, but must not be presented as official AOS or RafineriaAI
+releases, must not use the AOS or RafineriaAI names or marks as their own product
+identity, and must not describe their output as an official AOS verdict.
+
+"AOS Verdict Seal" is a reserved product designation of the copyright holder for
+a future officially signed verdict capability. No artifact produced by this
+repository carries the AOS Verdict Seal, and no right to use that designation is
+granted.
+
+Scope of this repository
+------------------------
+
+This repository is a curated public kernel release surface. It is a working,
+reusable implementation, not a production assurance service. It does not include
+private production policies, calibration methods, customer integrations, signing
+keys, or managed-service infrastructure. No license is granted by this repository
+to the separate, proprietary AOS Core technology or other unpublished
+implementation material of the copyright holder. See SCOPE_OF_PROOF.md and
+COMMERCIAL_BOUNDARY.md.
+
+Products built on this kernel are published separately, under the same license
+and the same brand boundary:
+https://github.com/RafineriaAI/agent-safety-gate (agent tool calls) and
+https://github.com/RafineriaAI/aos-workflow-gate (CI and pull requests).
 
 Methodology Provenance Marker
+-----------------------------
 
 Marker ID: AOS-MSK-PROVENANCE-2026-06
-Private methodology commitment SHA-256: 28abb1159ba9e91d91c239760e1d03c6af8017133690f0486cf0578389d76020
+Private methodology commitment SHA-256:
+28abb1159ba9e91d91c239760e1d03c6af8017133690f0486cf0578389d76020
 
-This marker links the public demonstrator to a private methodology and know-how
-record held by the author. The private record is not disclosed in this
-repository. The marker is a provenance commitment only; it is not a license,
-patent claim, certification, exclusivity claim, security claim, or disclosure of
-private implementation details.
+This marker links the public kernel to a private methodology and know-how record
+held by the author. The private record is not disclosed in this repository. The
+marker is a provenance commitment only; it is not a license restriction, patent
+claim, certification, exclusivity claim, or security claim, and it does not
+limit any right granted by the Apache License, Version 2.0.
 
---------------------------------------------------------------------------------
-Redistribution note
---------------------------------------------------------------------------------
-
-The upstream terms grant no copying or redistribution rights to third parties.
-`agent-safety-gate` and `aos-kernel` share one copyright holder, who authorises
-this vendored copy. Third parties must not infer any right to redistribute the
-vendored file separately from the terms above.
+The vendored file is redistributed under those upstream terms. Apache-2.0 grants
+that right to anyone, so a third party may redistribute the vendored copy on the
+same terms; the trademark reservation above travels with it.
 
 --------------------------------------------------------------------------------
 Derived data: benchmarks/traces/agentdojo_labelled.jsonl

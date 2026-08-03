@@ -3,11 +3,28 @@
 Three things in this repository are not engineering calls. They are flagged here
 rather than resolved.
 
-## 1. The licence
+## 1. The licence - DECIDED 2026-08-02: Apache-2.0
 
-`LICENSE` is a placeholder. Nothing else in the repository can be finished until
-this is settled, because the licence decides who can run the tool at all, and
-`pyproject.toml`, both READMEs and `LICENSE` must be updated together.
+`LICENSE` carries the Apache License 2.0. `pyproject.toml`, both READMEs and
+`NOTICE` were updated in the same change, and `tests/test_project_constraints.py`
+now holds them in sync.
+
+The reasoning below is kept because it records what the choice cost. The
+deciding argument was not in the table: what survives adversarial reading in this
+repository is the *record*, not the gate. Gates are commodity - published specs
+do deterministic authorisation with signed audit logs, for free.
+
+The first version of this note went on to say that Apache-2.0 was the choice
+because it lets a record format spread and become something an auditor
+recognises. That part was too optimistic, and a later market scan corrected it:
+`draft-marques-asqav-compliance-receipts` at IETF already specifies signed action
+receipts for AI agents, with external anchoring as a MUST and an approver field,
+mapped across nine regulatory regimes. Owning the format is not on the table.
+Being readable by whatever format wins is, and non-OSI licences are excluded from
+that by tooling vendors who will not build on them. The conclusion stands; the
+reason is compatibility, not ownership.
+
+The original analysis, unedited:
 
 **The trade-off worth naming first:** a restrictive licence is itself a barrier
 to entry. This product's whole argument is that an evaluator can go from `pip
@@ -50,9 +67,10 @@ which is the minimum needed to turn "signed by some key" into "signed by ours".
 
 ## 3. Publishing
 
-The package name `agent-safety-gate` is not reserved on PyPI. Until it is
-published, the quickstart installs from a checkout, and the README says so.
-Publishing requires the licence decision first.
+The package name `agent-safety-gate` is not reserved on PyPI (checked
+2026-08-02: still free). The licence decision that blocked publishing is made,
+so the remaining step is a release, not a decision. Until it is published, the
+quickstart installs from a checkout, and the README says so.
 
 The repository is prepared for `git push` with full history. See
 [DELIVERY.md](DELIVERY.md).

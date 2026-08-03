@@ -192,13 +192,28 @@ def test_the_committed_demo_key_announces_itself() -> None:
     assert "INSECURE" in "examples/demo_signing_key.INSECURE.json"
 
 
-def test_the_licence_is_still_flagged_for_the_owner() -> None:
-    """Fails once the licence is decided, which is the point: the READMEs and
-    pyproject must be updated in the same change."""
+def test_the_licence_is_stated_the_same_way_everywhere() -> None:
+    """The licence lives in five files. They drift silently, so they are held
+    together here.
+
+    This replaces the placeholder tripwire that used to fail once a licence was
+    chosen. Its job is the same: no file may claim something the others do not.
+    """
     licence = (REPO_ROOT / "LICENSE").read_text(encoding="utf-8")
-    if "PLACEHOLDER" not in licence:
-        pytest.fail(
-            "LICENSE no longer looks like a placeholder. Update README.md, "
-            "README.pl.md, pyproject.toml and this test together."
-        )
-    assert "docs/OWNER_DECISIONS.md" in licence
+    assert "Apache License" in licence
+    assert "Version 2.0, January 2004" in licence
+    assert "PLACEHOLDER" not in licence
+
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'license = "Apache-2.0"' in pyproject
+
+    for readme in ("README.md", "README.pl.md"):
+        text = (REPO_ROOT / readme).read_text(encoding="utf-8")
+        assert "Apache-2.0" in text, readme
+        assert "Not yet chosen" not in text, readme
+        assert "Jeszcze nie wybrana" not in text, readme
+
+    # The vendored kernel's own terms travel with it and must stay quoted.
+    notice = (REPO_ROOT / "NOTICE").read_text(encoding="utf-8")
+    assert "Upstream NOTICE (RafineriaAI/aos-kernel)" in notice
+    assert "Apache License, Version 2.0" in notice
