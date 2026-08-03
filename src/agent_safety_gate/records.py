@@ -320,6 +320,30 @@ def verify_record(
         )
     checks.append(_check("chain_link", chain_ok, chain_detail))
 
+    if record.get("record_kind") == "warn_resolution":
+        # A resolution answers a decision, it is not one: there is no call, no
+        # signals and no arithmetic to re-derive. Everything above - digest,
+        # chain link, signature - has already been checked and is what makes it
+        # evidence. Running the call-shaped checks here would fail a record that
+        # is exactly as it should be.
+        target = record.get("resolves_record_sha256")
+        checks.append(
+            _check(
+                "resolution_target",
+                is_sha256_hex(target),
+                "names the record it resolves"
+                if is_sha256_hex(target)
+                else "resolves_record_sha256 is missing or malformed",
+            )
+        )
+        return RecordVerification(
+            line=line,
+            record_sha256=claimed_digest if isinstance(claimed_digest, str) else None,
+            verdict=None,
+            tool=None,
+            checks=tuple(checks),
+        )
+
     call = record.get("call")
     if not isinstance(call, dict) or "arguments_json" not in call:
         checks.append(

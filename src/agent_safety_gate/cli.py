@@ -5,6 +5,8 @@
 * ``wrap``      - put the gate in front of an MCP server, configuration only.
 * ``hook``      - gate Claude Code's native tools as a PreToolUse hook.
 * ``eval``      - gate one call from any framework that can run a subprocess.
+* ``try``       - replay your own agent log, drafting a policy from it, to see
+  what the gate would have said before wiring anything up.
 * ``explain``   - read a decision months later without reconstructing it.
 * ``verify``    - check a chain offline, here or in a browser.
 * ``calibrate`` - replay recorded calls under a candidate policy before
@@ -16,9 +18,11 @@ Every error message ends with a next step.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import shutil
 import sys
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Final
 
@@ -419,9 +423,14 @@ def verify_command(args: argparse.Namespace) -> int:
     print()
     for item in result.records:
         status = "OK  " if item.ok else "FAIL"
+        # A resolution has no verdict and no tool: it answers one. Printing
+        # "None None" for it would read like a broken record rather than a
+        # different kind of one.
+        verdict = str(item.verdict) if item.verdict else "-"
+        tool = str(item.tool) if item.tool else "(resolution)"
         print(
-            f"  {status} line {item.line:<3} {str(item.verdict):<5} "
-            f"{str(item.tool):<14} {str(item.record_sha256)[:16]}"
+            f"  {status} line {item.line:<3} {verdict:<5} "
+            f"{tool:<14} {str(item.record_sha256)[:16]}"
         )
         for check in item.failures:
             print(f"         {check.name}: {check.detail}")
@@ -442,7 +451,15 @@ def verify_command(args: argparse.Namespace) -> int:
             for record in read_records(path)
             if record.get("enforcement") == "forwarded_not_enforced"
         ]
-        print("Chain intact, every record signed and every digest reproducible.")
+        # "Chain intact" is true of any internally consistent file, including one
+        # the key holder rewrote from scratch: removing a record and re-signing
+        # the remainder produces a chain that passes every check here. Saying so
+        # is the difference between describing this file and vouching for the
+        # session it claims to be.
+        print(
+            "Chain intact: this file is internally consistent, every record is "
+            "signed and every digest reproducible."
+        )
         if observed:
             print(
                 f"{len(observed)} record(s) were decided but NOT enforced "
@@ -456,6 +473,7 @@ def verify_command(args: argparse.Namespace) -> int:
                 "record. It does not say who that holder is: pass --public-key "
                 "to require the key you expect."
             )
+        _report_anchors(path, read_records(path))
         return 0
     print(f"VERIFICATION FAILED on line(s): {', '.join(map(str, result.failed_lines))}")
     print(
@@ -595,6 +613,421 @@ def calibrate_command(args: argparse.Namespace) -> int:
 # ------------------------------------------------------------------- main
 
 
+# --- try: replay an operator's own agent log --------------------------------
+
+
+def _extract_call(entry: object) -> tuple[str, dict[str, Any]] | None:
+    """Return (tool, arguments) from one log entry, or None if it is not a call.
+
+    Understands the three shapes an exported agent log arrives in. An operator
+    should not have to reformat their file before the gate will look at it:
+    refusing the file is refusing the evaluation.
+    """
+    import json as json_module
+
+    if not isinstance(entry, dict):
+        return None
+
+    tool = entry.get("tool")
+    if isinstance(tool, str) and tool:
+        arguments = entry.get("arguments")
+        return tool, arguments if isinstance(arguments, dict) else {}
+
+    name = entry.get("name")
+    if isinstance(name, str) and name and "input" in entry:
+        supplied = entry.get("input")
+        return name, supplied if isinstance(supplied, dict) else {}
+
+    function = entry.get("function")
+    if isinstance(function, dict):
+        fname = function.get("name")
+        if isinstance(fname, str) and fname:
+            raw = function.get("arguments")
+            if isinstance(raw, str):
+                try:
+                    parsed: object = json_module.loads(raw)
+                except json_module.JSONDecodeError:
+                    parsed = {}
+            else:
+                parsed = raw
+            return fname, parsed if isinstance(parsed, dict) else {}
+
+    return None
+
+
+def _read_log(path: Path) -> list[tuple[str, dict[str, Any]]]:
+    import json as json_module
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise CliError(f"cannot read {path}: {exc}") from exc
+
+    entries: list[object] = []
+    if text.lstrip().startswith("["):
+        try:
+            loaded = json_module.loads(text)
+        except json_module.JSONDecodeError as exc:
+            raise CliError(
+                f"{path}: not valid JSON ({exc.msg})\n"
+                "Next step: a JSON array of tool calls, or one JSON object per line."
+            ) from exc
+        entries = loaded if isinstance(loaded, list) else [loaded]
+    else:
+        for line_no, line in enumerate(text.splitlines(), 1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                entries.append(json_module.loads(stripped))
+            except json_module.JSONDecodeError as exc:
+                raise CliError(
+                    f"{path}:{line_no}: not valid JSON ({exc.msg})\n"
+                    "Next step: one JSON object per line, or a JSON array."
+                ) from exc
+
+    calls = [c for c in (_extract_call(e) for e in entries) if c is not None]
+    if not calls:
+        raise CliError(
+            f"{path}: no tool calls found in {len(entries)} entr(ies)\n"
+            "Next step: each entry needs a tool name and its arguments, in one of: "
+            "tool/arguments, name/input, or function.name/function.arguments."
+        )
+    return calls
+
+
+def _draft_policy(tools: Sequence[str], path: Path) -> None:
+    """Write a starting policy naming the tools the log actually used.
+
+    Every class in it is a guess, and the file says so on every tool. The point
+    is not to be right: an operator cannot judge the gate before they have a
+    policy, and cannot write a policy before they know their own tool surface.
+    This breaks that circle without pretending to make the declaration for them.
+    """
+    lines = [
+        "# Drafted by `agent-safety-gate try` from the tool names in your log.",
+        "#",
+        "# EVERY action_class BELOW IS A GUESS. The gate has no opinion about what",
+        "# your tools do - you declare it, and it applies the declaration. Read",
+        "# each one and correct it. An unedited draft tells you nothing about your",
+        "# deployment.",
+        "#",
+        "# mode is `observe`: nothing is refused while you are still deciding.",
+        "",
+        "policy_id: drafted_from_log",
+        'policy_version: "0.0.1"',
+        "",
+        "thresholds:",
+        "  limit: 7000",
+        "  warn_margin: 2000",
+        "",
+        "weights:",
+        "  action_class:",
+        "    read_only: 1000",
+        "    reversible_write: 2000",
+        "    irreversible: 4000",
+        "    external_effect: 4000",
+        "  scope_mismatch: 4500",
+        "  approval_missing: 3500",
+        "",
+        "uncertainty:",
+        "  policy_coverage_absent: 5500",
+        "  scope_unmeasured: 1500",
+        "  unknown_tool_extra: 2000",
+        "",
+        "unknown_tool: warn",
+        "mode: observe",
+        "record_arguments: full",
+        "approvals_dir: .agent-safety-gate/approvals",
+        "",
+        "tools:",
+    ]
+    for tool in tools:
+        lines.extend(
+            [
+                f"  {tool}:",
+                "    # DECLARE read_only | reversible_write | irreversible |"
+                " external_effect",
+                "    # LOWER THIS once you know what the tool does. The draft",
+                "    # assumes the worst for every tool, because a draft that",
+                "    # guessed `read_only` would tell you your agent is fine",
+                "    # while knowing nothing about it.",
+                "    action_class: irreversible",
+                "    # DECLARE a `scope:` block, or every call of this tool is",
+                "    #      recorded as scope-unmeasured.",
+                "",
+            ]
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def try_command(args: argparse.Namespace) -> int:
+    """Replay an operator's own agent log through the gate, changing nothing."""
+    from agent_safety_gate.integrations import IntegrationError, evaluate_once
+
+    calls = _read_log(args.log)
+    tools = sorted({tool for tool, _ in calls})
+
+    out_dir = args.out or Path(".agent-safety-gate/try")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    records_path = out_dir / "records.jsonl"
+    if records_path.exists():
+        records_path.unlink()
+
+    drafted: Path | None = None
+    policy_arg = args.policy
+    if policy_arg is None:
+        drafted = out_dir / "drafted_policy.yaml"
+        _draft_policy(tools, drafted)
+        policy_arg = drafted
+
+    policy, key, _ = _integration_setup(policy_arg, records_path, args.key, Path.cwd())
+    # A replay must never record that it stopped anything. These calls already
+    # ran, in someone else's session, before the gate ever saw them; a record
+    # saying `rejected` would be describing an intervention that never happened.
+    # An operator's own policy may well say `mode: enforce` - that is about
+    # their deployment, not about this reading of their log.
+    if policy.mode != "observe":
+        policy = dataclasses.replace(policy, mode="observe")
+
+    verdicts: dict[str, int] = {}
+    unmeasured = 0
+    per_tool: dict[str, dict[str, int]] = {}
+    for tool, arguments in calls:
+        try:
+            result = evaluate_once(
+                policy, key, tool, arguments, records_path, mode="observe"
+            )
+        except IntegrationError as exc:
+            raise CliError(str(exc)) from exc
+        verdict = result.decision.verdict
+        verdicts[verdict] = verdicts.get(verdict, 0) + 1
+        counts = per_tool.setdefault(tool, {})
+        counts[verdict] = counts.get(verdict, 0) + 1
+        if any(not signal.measured for signal in result.decision.signals):
+            unmeasured += 1
+            counts["unmeasured"] = counts.get("unmeasured", 0) + 1
+
+    verifier = shutil.copyfile(verifier_path(), out_dir / "verify.html")
+
+    print(f"Replayed {len(calls)} call(s) over {len(tools)} tool(s), in observe mode.")
+    if drafted is None:
+        print("  " + "  ".join(f"{k} {v}" for k, v in sorted(verdicts.items())))
+    else:
+        # With a drafted policy the verdicts say what the draft assumed, not
+        # what your agent did. Leading with them would be the wrong number to
+        # read first, so the actionable one goes first instead.
+        print(f"  {len(tools)} tool(s) in your log are undeclared")
+        print(
+            "  verdicts are withheld: a drafted policy has not been told what "
+            "your tools do"
+        )
+    print(f"  {unmeasured} call(s) had a signal the gate could not measure")
+    print()
+
+    # Which tools drove the result. Without this an operator sees one number and
+    # has nowhere to start; with it, the first line is the first thing to declare.
+    ranked = sorted(
+        per_tool.items(),
+        key=lambda kv: (-(kv[1].get("BLOCK", 0) + kv[1].get("WARN", 0)), kv[0]),
+    )
+    width = max(len(t) for t in per_tool)
+    if drafted is None:
+        print("By tool, worst first:")
+        for tool, counts in ranked:
+            summary = "  ".join(
+                f"{k} {counts[k]}" for k in ("PASS", "WARN", "BLOCK") if counts.get(k)
+            )
+            note = (
+                f"   ({counts['unmeasured']} unmeasured)"
+                if counts.get("unmeasured")
+                else ""
+            )
+            print(f"  {tool:<{width}}  {summary}{note}")
+    else:
+        print("Declare these, most-used first. This is the work:")
+        for tool, counts in sorted(
+            per_tool.items(), key=lambda kv: (-sum(kv[1].values()), kv[0])
+        ):
+            seen = sum(v for k, v in counts.items() if k != "unmeasured")
+            print(f"  {tool:<{width}}  {seen} call(s)")
+    print()
+    if drafted is not None:
+        print(f"Policy drafted from your log: {drafted}")
+        print("  Every action_class in it is a guess. Correct them and run again -")
+        print("  until you do, these verdicts describe the draft, not your system.")
+        print()
+    print(f"Records:  {records_path}")
+    print(f"Verifier: {verifier}")
+    print(f"  Open {verifier.name} and drop {records_path.name} onto it.")
+    print("  Nothing leaves the browser.")
+    print()
+    print("Nothing was enforced and nothing was sent anywhere: this is a replay of")
+    print("a log you already had.")
+    return 0
+
+
+def _report_anchors(records_path: Path, records: list[dict[str, Any]]) -> None:
+    """Say what an anchor adds, and keep saying what it does not."""
+    from agent_safety_gate.anchoring import (
+        AnchorError,
+        anchors_path_for,
+        check_anchor,
+        read_anchors,
+    )
+
+    path = anchors_path_for(records_path)
+    try:
+        entries = read_anchors(path)
+    except AnchorError as exc:
+        print(f"Anchors: {exc}")
+        return
+
+    if not entries:
+        print(
+            "This file is not anchored. Whoever holds the key can drop a record "
+            "and re-sign the rest, and the result verifies - a timestamp from "
+            "somebody else would at least stop it being back-dated."
+        )
+        print(f"Next step: agent-safety-gate anchor {records_path}")
+        return
+
+    print(f"Anchors ({path.name}):")
+    for entry in entries:
+        result = check_anchor(entry, records)
+        mark = "OK  " if result.ok else "FAIL"
+        stamped = f" at {result.timestamp}" if result.timestamp else ""
+        print(f"  {mark} {entry.get('type')}{stamped}  {result.detail}")
+    print(
+        "An anchor proves the chain existed by that time. It does not prove the "
+        "chain is complete: a timestamp authority keeps no register of what it "
+        "signed, so a record deleted with its token leaves nothing behind."
+    )
+
+
+# --- resolve: what a person did about a WARN --------------------------------
+
+
+def resolve_command(args: argparse.Namespace) -> int:
+    """Append who acted on a WARN, and how, as a new link in the chain.
+
+    Without this a WARN record is byte-identical whether a person considered it
+    or a wrapper cleared it automatically, which makes the whole warn-and-let-a-
+    human-decide mechanism unfalsifiable. The resolution is a new record rather
+    than an edit to the old one: the chain is append-only, and a decision that
+    rewrote history to say it had been reviewed would be worth nothing.
+    """
+    from agent_safety_gate.records import (
+        append_record,
+        last_record_sha256,
+        sign_record,
+    )
+
+    records_path = Path(args.records)
+    records = read_records(records_path)
+    if not 1 <= args.line <= len(records):
+        raise CliError(
+            f"--line {args.line} is out of range: {records_path.name} has "
+            f"{len(records)} record(s).\n"
+            f"Next step: agent-safety-gate verify {records_path} lists them."
+        )
+
+    target = records[args.line - 1]
+    verdict = target.get("aos_verdict")
+    if verdict != "WARN":
+        raise CliError(
+            f"record {args.line} is a {verdict}, not a WARN.\n"
+            "Next step: a PASS needed no decision, and a BLOCK was refused - "
+            "neither is waiting on a person. Resolve the WARN records."
+        )
+    digest = str(target.get("record_sha256"))
+
+    key = _resolve_key(args.key, quiet=True)
+    resolved_at = args.resolved_at or datetime.now(timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    record: dict[str, Any] = {
+        "schema_version": "agent-safety-gate-resolution/v1",
+        "gate_schema_version": target.get("gate_schema_version"),
+        "adapter": "agent_safety_gate",
+        "adapter_version": f"agent-safety-gate/{__version__}",
+        "record_kind": "warn_resolution",
+        "resolves_record_sha256": digest,
+        "resolves_chain_index": target.get("chain_index"),
+        "resolution": {
+            "outcome": args.outcome,
+            "resolved_by": args.by,
+            "reason": args.reason,
+            "resolved_at": resolved_at,
+        },
+        "chain_index": len(records),
+        "prev_record_sha256": last_record_sha256(records_path),
+        "recorded_at": resolved_at,
+        # An identifier typed at a terminal is a claim by whoever ran the
+        # command, not proof of anybody. Saying so here keeps a later reader
+        # from reading more into the field than it carries.
+        "identity_assurance": "self_declared",
+    }
+    sign_record(record, key)
+    append_record(records_path, record)
+
+    print(f"Recorded a resolution for record {args.line} ({digest[:16]}).")
+    print(f"  outcome  {args.outcome}")
+    print(f"  by       {args.by}")
+    print(f"  reason   {args.reason}")
+    print()
+    print("Appended as a new link, so the WARN it answers is unchanged and both")
+    print("are covered by the chain. `identity_assurance` is `self_declared`:")
+    print("the gate recorded the name it was given and cannot vouch for it.")
+    return 0
+
+
+# --- anchor: a timestamp somebody else signed -------------------------------
+
+
+def anchor_command(args: argparse.Namespace) -> int:
+    """Anchor the chain head with an RFC 3161 timestamp."""
+    from agent_safety_gate.anchoring import (
+        AnchorError,
+        anchor_records,
+        anchors_path_for,
+        read_anchors,
+        write_anchors,
+    )
+
+    records_path = Path(args.records)
+    records = read_records(records_path)
+    if not records:
+        raise CliError(
+            f"{records_path} has no records to anchor.\n"
+            "Next step: run the gate first, then anchor what it wrote."
+        )
+
+    from agent_safety_gate.anchoring import DEFAULT_TSA
+
+    try:
+        anchor = anchor_records(records, tsa_url=args.tsa_url or DEFAULT_TSA)
+    except AnchorError as exc:
+        raise CliError(str(exc)) from exc
+
+    path = anchors_path_for(records_path)
+    # Prior anchors pass through unchanged: rewriting one destroys what it is for.
+    write_anchors(path, [*read_anchors(path), anchor.to_dict()])
+
+    print(f"Anchored the chain head of {records_path.name}")
+    print(f"  digest    {anchor.committed_sha256}")
+    print(f"  authority {anchor.tsa_url}")
+    print(f"  status    {anchor.status}")
+    print(f"  written   {path}")
+    print()
+    print("This proves the chain existed by that time and cannot be back-dated.")
+    print("It does not prove the chain is complete: a timestamp authority keeps")
+    print("no register of what it signed, so a record deleted along with its")
+    print("token leaves nothing behind. Only an append-only log outside your")
+    print("control closes that, and this is not one.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agent-safety-gate",
@@ -694,6 +1127,50 @@ def build_parser() -> argparse.ArgumentParser:
     calibrate_parser.add_argument("records", type=Path)
     calibrate_parser.add_argument("--policy", type=Path, required=True)
     calibrate_parser.set_defaults(handler=calibrate_command)
+
+    try_parser = subcommands.add_parser(
+        "try",
+        help="replay your own agent log through the gate, in observe mode, "
+        "drafting a policy from it if you have none yet",
+    )
+    try_parser.add_argument("log", type=Path)
+    try_parser.add_argument("--policy", type=Path)
+    try_parser.add_argument("--out", type=Path)
+    try_parser.add_argument("--key", type=Path)
+    try_parser.set_defaults(handler=try_command)
+
+    anchor_parser = subcommands.add_parser(
+        "anchor",
+        help="timestamp the chain head with an RFC 3161 authority, so the "
+        "records cannot be back-dated",
+    )
+    anchor_parser.add_argument("records", type=Path)
+    anchor_parser.add_argument(
+        "--tsa-url",
+        default=None,
+        help="timestamp authority to use (default: a free public one)",
+    )
+    anchor_parser.set_defaults(handler=anchor_command)
+
+    resolve_parser = subcommands.add_parser(
+        "resolve",
+        help="record who acted on a WARN, and how, as a new link in the chain",
+    )
+    resolve_parser.add_argument("records", type=Path)
+    resolve_parser.add_argument("--line", type=int, required=True)
+    resolve_parser.add_argument("--by", required=True, help="identifier of the person")
+    resolve_parser.add_argument(
+        "--outcome", required=True, choices=["allowed", "denied"]
+    )
+    resolve_parser.add_argument("--reason", required=True)
+    resolve_parser.add_argument("--key", type=Path)
+    resolve_parser.add_argument(
+        "--resolved-at",
+        dest="resolved_at",
+        default=None,
+        help="ISO 8601 time of the decision (default: now)",
+    )
+    resolve_parser.set_defaults(handler=resolve_command)
 
     return parser
 
